@@ -91,7 +91,11 @@ const FileStore = (() => {
     supportsFsAccess: SUPPORTS_FS_ACCESS,
 
     async openPicker() {
+      // "id" faz o navegador lembrar sozinho a última pasta usada para esse
+      // fluxo específico e já abrir o seletor nela da próxima vez — sem
+      // precisarmos guardar/restaurar caminho manualmente.
       const [handle] = await window.showOpenFilePicker({
+        id: 'pcp-db',
         types: [{ description: 'Banco de dados SQLite', accept: { 'application/octet-stream': ['.sqlite', '.db'] } }],
       });
       if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') {
@@ -107,6 +111,7 @@ const FileStore = (() => {
 
     async createNewPicker() {
       const handle = await window.showSaveFilePicker({
+        id: 'pcp-db',
         suggestedName: 'dimensionamento.sqlite',
         types: [{ description: 'Banco de dados SQLite', accept: { 'application/octet-stream': ['.sqlite'] } }],
       });
@@ -169,6 +174,7 @@ const FileStore = (() => {
       const bytes = Engine.exportBytes();
       if (SUPPORTS_FS_ACCESS) {
         const handle = await window.showSaveFilePicker({
+          id: 'pcp-db-publish',
           suggestedName: filename,
           types: [{ description: 'Banco de dados SQLite', accept: { 'application/octet-stream': ['.sqlite'] } }],
         });

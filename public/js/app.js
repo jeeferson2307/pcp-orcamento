@@ -54,6 +54,10 @@ async function router() {
   body.innerHTML = '<div class="empty-state">Carregando…</div>';
 
   try {
+    // Recarrega META a cada navegação — barato (consultas em memória no
+    // sql.js) e evita que uma operação/filial recém-criada em outra tela
+    // (ex.: Cadastro Operações) só apareça depois de recarregar a página.
+    META = await Api.get('/api/meta');
     if (route === 'dashboard') return renderDashboardPage(body, META);
     if (route === 'calendario') return renderCalendarioPage(body, META);
     if (route.startsWith('wide:')) return renderWideGrid(body, route.slice(5), META);
