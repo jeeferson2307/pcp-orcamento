@@ -1,0 +1,22 @@
+# Dependências (não precisam ir pro repo; só usadas pela ferramenta legada
+# src/ para reimportar do Excel, não pelo app estático em public/)
+node_modules/
+
+# Dados reais — nunca versionar. O app não precisa de nenhum .db/.sqlite
+# no repositório: cada usuário abre/cria o seu próprio arquivo local.
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Artefato de teste usado durante o desenvolvimento (cópia temporária do
+# banco servida em public/ para testar no navegador — sempre removido ao
+# final de cada sessão de teste, mas fica aqui como rede de segurança).
+public/_test_data.db
+
+# Config local do harness de desenvolvimento (não faz parte do app)
+.claude/
+
+# Planilha original (contém dados reais da Callink) — nunca versionar
+*.xlsb
+*.xlsx

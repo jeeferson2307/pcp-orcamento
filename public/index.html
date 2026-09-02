@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PCP · Dimensionamento &amp; Orçamento</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div id="launcher" class="launcher">
+    <div class="launcher-card">
+      <div class="launcher-mark" data-icon="database" data-icon-size="22"></div>
+      <h1>PCP · Dimensionamento &amp; Orçamento</h1>
+      <p class="small">Sistema 100% local — roda direto neste arquivo, sem instalar nada. Seus dados ficam em um arquivo <code>.sqlite</code> no seu computador.</p>
+
+      <div id="launcher-fsaccess">
+        <button class="primary" id="btn-open"><span data-icon="folder-open"></span> Abrir banco de dados existente</button>
+        <button id="btn-new"><span data-icon="file-plus-2"></span> Criar novo banco de dados</button>
+      </div>
+
+      <div id="launcher-fallback" style="display:none">
+        <p class="small">Seu navegador não suporta salvar direto no arquivo. Os dados serão salvos automaticamente neste navegador, e você pode baixar um backup <code>.sqlite</code> quando quiser (Chrome ou Edge têm suporte completo).</p>
+        <label class="file-input-label"><span data-icon="folder-open"></span> Abrir arquivo .sqlite existente
+          <input type="file" id="file-input" accept=".sqlite,.db" style="display:none">
+        </label>
+        <button id="btn-new-fallback"><span data-icon="file-plus-2"></span> Criar novo banco de dados</button>
+      </div>
+
+      <div id="launcher-error" class="launcher-error"></div>
+    </div>
+  </div>
+
+  <div class="app" id="app-root" style="display:none">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" data-icon="database" data-icon-size="16"></span>
+        <div>
+          <div class="brand-title">PCP · Dimensionamento</div>
+          <div class="brand-file" id="brand-file"></div>
+        </div>
+      </div>
+      <nav id="nav"></nav>
+    </aside>
+    <button class="mobile-nav-toggle" id="mobile-nav-toggle" aria-label="Abrir menu"><span data-icon="menu"></span></button>
+    <main class="content">
+      <header class="topbar">
+        <h1 id="page-title">Carregando…</h1>
+        <div id="page-actions">
+          <span id="save-status" class="save-status"></span>
+          <button class="primary" id="btn-publicar"><span data-icon="upload"></span> Publicar Orçamento</button>
+          <button class="icon-btn" id="btn-download-backup" title="Baixar uma cópia .sqlite deste banco"><span data-icon="download"></span></button>
+          <button class="icon-btn" id="btn-switch-file" title="Abrir outro arquivo .sqlite"><span data-icon="refresh-cw"></span></button>
+        </div>
+      </header>
+      <div id="page-body" class="page-body"></div>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script src="js/icons.js"></script>
+  <script src="js/lib/sql-wasm-data.js"></script>
+  <script src="js/lib/sql-wasm.js"></script>
+  <script src="js/lib/schema-sql.js"></script>
+  <script src="js/dbengine.js"></script>
+  <script src="js/filestore.js"></script>
+  <script src="js/calendario.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/tablesConfig.js"></script>
+  <script src="js/flatTablesConfig.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/format.js"></script>
+  <script src="js/widegrid.js"></script>
+  <script src="js/flatgrid.js"></script>
+  <script src="js/modal.js"></script>
+  <script src="js/cadastros.js"></script>
+  <script src="js/pages.js"></script>
+  <script src="js/app.js"></script>
+  <script>applyIcons();</script>
+</body>
+</html>
