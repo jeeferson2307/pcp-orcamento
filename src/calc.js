@@ -24,6 +24,33 @@ function mapByKey(rows, keyFn) {
   return m;
 }
 
+// Distribuição de Volume/HC é cadastrada mês a mês por (operação, filial) e
+// facilmente fica sem registro nos meses novos/projetados (ex.: usuário
+// estende Dimensionamento até um mês futuro mas esquece de replicar a
+// Distribuição). Sem isso, o % de rateio some (null) e zera Volume/HC
+// Revisado do ano inteiro. Resolve com o mesmo princípio já usado em
+// buildForecast para Volume/TMA/Pausa: quando não há % para o mês exato,
+// usa o último % conhecido (mais recente) daquela operação+filial.
+function buildCarryForwardLookup(rows) {
+  const byOpUnit = new Map();
+  for (const r of rows) {
+    const k = `${r.nom_operacao}__${r.unidade}`;
+    if (!byOpUnit.has(k)) byOpUnit.set(k, []);
+    byOpUnit.get(k).push(r);
+  }
+  for (const list of byOpUnit.values()) list.sort((a, b) => (a.referencia < b.referencia ? -1 : 1));
+  return (referencia, nomOperacao, unidade) => {
+    const list = byOpUnit.get(`${nomOperacao}__${unidade}`);
+    if (!list || list.length === 0) return null;
+    let ultimoConhecido = null;
+    for (const r of list) {
+      if (r.referencia > referencia) break;
+      ultimoConhecido = r;
+    }
+    return ultimoConhecido ? ultimoConhecido.valor : null;
+  };
+}
+
 // ---------------------------------------------------------------
 // TB_PROJECAO_FORECAST
 // ---------------------------------------------------------------
@@ -120,8 +147,8 @@ function buildComplete(ano) {
   const forecast = buildForecast(ano);
   const filiais = db.prepare('SELECT * FROM d_filiais').all();
 
-  const distHc = mapByKey(db.prepare('SELECT * FROM tb_distribuicao_hc').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
-  const distVol = mapByKey(db.prepare('SELECT * FROM tb_distribuicao_volume').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
+  const distHcLookup = buildCarryForwardLookup(db.prepare('SELECT * FROM tb_distribuicao_hc').all());
+  const distVolLookup = buildCarryForwardLookup(db.prepare('SELECT * FROM tb_distribuicao_volume').all());
   const tbAbs = mapByKey(db.prepare('SELECT * FROM tb_abs').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbTo = mapByKey(db.prepare('SELECT * FROM tb_to').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbFerias = mapByKey(db.prepare('SELECT * FROM tb_ferias').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
@@ -144,8 +171,8 @@ function buildComplete(ano) {
       const unidade = fil.unidade;
       const kDist = keyDist(f.referencia, f.nom_operacao, unidade);
 
-      const pcrtHc = distHc.get(kDist)?.valor ?? null;
-      const pcrtVolume = distVol.get(kDist)?.valor ?? null;
+      const pcrtHc = distHcLookup(f.referencia, f.nom_operacao, unidade);
+      const pcrtVolume = distVolLookup(f.referencia, f.nom_operacao, unidade);
 
       const keyUnit = `${unidade}${f.nom_operacao}`;
       const unit = tbUnitarios.get(keyUnit) || {};
