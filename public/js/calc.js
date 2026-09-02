@@ -144,8 +144,19 @@ function buildComplete(ano) {
       const pcrtHc = distHc.get(kDist)?.valor ?? null;
       const pcrtVolume = distVol.get(kDist)?.valor ?? null;
 
+      const keyUnit = `${unidade}${f.nom_operacao}`;
+      const unit = tbUnitarios.get(keyUnit) || {};
+      const tipoFat = unit.tipo_faturamento;
+      const isHcBased = tipoFat === TEMPO_LOGADO || tipoFat === POSICAO;
+
       const volumeRevisado = Math.round(f.volume * pcrtVolume);
-      const hcRevisado = Math.round((f.hc_contratado > 0 ? f.hc_contratado : f.hc_dimensionado) * pcrtHc);
+      // Faturamento por Tempo Logado/Posição (PA fixa): o HC Contratado é um
+      // número fechado por operação, não uma grandeza a ratear por % de
+      // Distribuição — projeta o valor cadastrado em Dimensionamento direto,
+      // sem depender de haver uma linha em Distribuição de HC para o mês.
+      const hcRevisado = (isHcBased && f.hc_contratado > 0)
+        ? Math.round(f.hc_contratado)
+        : Math.round((f.hc_contratado > 0 ? f.hc_contratado : f.hc_dimensionado) * pcrtHc);
 
       const abs = tbAbs.get(kDist)?.valor ?? 0;
       const to_ = tbTo.get(kDist)?.valor ?? 0;
@@ -157,14 +168,10 @@ function buildComplete(ano) {
       const evasao = tbEvasoes.get(kDist)?.valor ?? 0;
       const totalContratacoes = Math.round(roundUp((reposicoes + contratacoesAdicionais) / (1 - evasao), 0)) || 0;
 
-      const keyUnit = `${unidade}${f.nom_operacao}`;
-      const unit = tbUnitarios.get(keyUnit) || {};
       const cprb = tbCprb.get(kDist) || {};
       const reajuste = tbReajuste.get(kDist) || {};
       const unitarioReajustado = (unit.unitario_g3 ?? 0) * (1 + (cprb.valor ?? 0)) * (1 + (reajuste.valor ?? 0));
 
-      const tipoFat = unit.tipo_faturamento;
-      const isHcBased = tipoFat === TEMPO_LOGADO || tipoFat === POSICAO;
       const hcBruto = isHcBased ? hcRevisado : hcRevisado / (1 - (abs + to_ + ferias + folga));
       const hcCusto = hcBruto + totalContratacoes;
 
