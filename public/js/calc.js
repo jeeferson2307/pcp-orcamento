@@ -54,14 +54,26 @@ function buildCarryForwardLookup(rows) {
 // ---------------------------------------------------------------
 function buildForecast(ano) {
   const base = DB.prepare('SELECT * FROM tb_premissas_dimens').all();
-  const cal = fnCalendarioMensal(ano);
-  const diasDe = (mes) => (cal.has(mes) ? cal.get(mes).diasFaturamento : null);
 
   const preenchidas = base.filter(r => r.referencia != null &&
     (((r.volume ?? 0) !== 0) || ((r.hc_contratado ?? 0) !== 0)));
   if (preenchidas.length === 0) return [];
 
   const mesBase = preenchidas.reduce((max, r) => (r.referencia > max ? r.referencia : max), preenchidas[0].referencia);
+  const anoBase = Number(mesBase.slice(0, 4));
+  // O ano solicitado pode estar à frente do ano do mês-base (ex.: última
+  // premissa real em set/2026, usuário pedindo a projeção de 2027) — o
+  // calendário precisa cobrir do ano mais antigo com dado real até o ano
+  // pedido (ou o do mês-base, o que for maior), senão diasDe() não resolve
+  // os meses reais fora do ano pedido e a projeção nunca avança de ano.
+  const anoMin = Math.min(...preenchidas.map(r => Number(r.referencia.slice(0, 4))));
+  const anoFim = Math.max(ano, anoBase);
+  const cal = new Map();
+  for (let a = anoMin; a <= anoFim; a++) {
+    for (const [k, v] of fnCalendarioMensal(a)) cal.set(k, v);
+  }
+  const diasDe = (mes) => (cal.has(mes) ? cal.get(mes).diasFaturamento : null);
+
   const historico = preenchidas.filter(r => r.referencia <= mesBase);
 
   const real = historico.map(r => {
@@ -73,8 +85,7 @@ function buildForecast(ano) {
     return { ...r, dias_faturamento: diasFaturamento, minutagem, tipo_linha: 'REAL' };
   });
 
-  const anoBase = Number(mesBase.slice(0, 4));
-  const fimAno = `${anoBase}-12-01`;
+  const fimAno = `${anoFim}-12-01`;
   const mesesProj = [...cal.keys()].filter(m => m > mesBase && m <= fimAno).sort();
 
   const grupos = new Map();
