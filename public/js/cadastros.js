@@ -42,9 +42,52 @@ function nextMonthStr(refStr) {
 }
 
 // ---------------------------------------------------------------
-// Lista vertical de operações (comum a todos os cadastros abaixo)
+// Meses cadastrados por operação — resumo mostrado em cada item da lista
+// vertical (renderOperationList), para o usuário enxergar de relance quais
+// operações ainda não têm nada cadastrado naquele cadastro específico.
 // ---------------------------------------------------------------
-function renderOperationList(container, meta, onSelect) {
+function buildMesesMap(rows, opKey, mesKey) {
+  const byOp = new Map();
+  for (const r of rows) {
+    const op = r[opKey];
+    const mes = r[mesKey];
+    if (!op || !mes) continue;
+    if (!byOp.has(op)) byOp.set(op, new Set());
+    byOp.get(op).add(mes);
+  }
+  const out = new Map();
+  for (const [op, set] of byOp) {
+    const meses = [...set].sort();
+    out.set(op, { count: meses.length, min: meses[0], max: meses[meses.length - 1] });
+  }
+  return out;
+}
+
+// Tabelas "largas" (wide) já vêm agrupadas por (referencia [+tipo_dimens],
+// nom_operacao) em res.rows — um mês conta se aparece em QUALQUER uma das
+// métricas daquele cadastro (mesma união usada em renderMetricGridFormDetail).
+async function mesesMapFromMetricTables(metrics) {
+  const allRows = [];
+  for (const m of metrics) {
+    const res = await Api.get(`/api/wide/${m.table}`);
+    allRows.push(...res.rows);
+  }
+  return buildMesesMap(allRows, 'nom_operacao', 'referencia');
+}
+
+function mesInfoLabel(info) {
+  if (!info || info.count === 0) return null;
+  if (info.count === 1) return `1 mês cadastrado · ${Fmt.mes(info.min)}`;
+  return `${info.count} meses cadastrados · ${Fmt.mes(info.min)} a ${Fmt.mes(info.max)}`;
+}
+
+// ---------------------------------------------------------------
+// Lista vertical de operações (comum a todos os cadastros abaixo).
+// `mesesPorOperacao` (opcional): Map operação -> {count, min, max} — quando
+// presente, mostra abaixo do nome da operação um resumo dos meses
+// cadastrados (ou um aviso quando não há nenhum).
+// ---------------------------------------------------------------
+function renderOperationList(container, meta, onSelect, mesesPorOperacao) {
   container.innerHTML = `
     <div class="search-input op-search"><span data-icon="search"></span><input type="text" id="op-search-input" placeholder="Buscar operação…"></div>
     <div class="op-list" id="op-list"></div>
@@ -53,8 +96,20 @@ function renderOperationList(container, meta, onSelect) {
   const listEl = container.querySelector('#op-list');
   function draw(filter) {
     const ops = meta.operacoes.filter(o => !filter || o.toLowerCase().includes(filter.toLowerCase()));
-    listEl.innerHTML = ops.map(o => `<div class="op-list-item" data-op="${escapeHtml(o)}"><span>${escapeHtml(o)}</span><span class="chev">${Icon('chevron-right')}</span></div>`).join('')
-      || '<div class="empty-state">Nenhuma operação encontrada.</div>';
+    listEl.innerHTML = ops.map(o => {
+      let mesesHtml = '';
+      if (mesesPorOperacao) {
+        const info = mesesPorOperacao.get(o);
+        const label = mesInfoLabel(info);
+        mesesHtml = label
+          ? `<span class="op-list-meses">${label}</span>`
+          : `<span class="op-list-meses op-list-meses-vazio">${Icon('circle-alert', { size: 12 })} Nenhum mês cadastrado</span>`;
+      }
+      return `<div class="op-list-item" data-op="${escapeHtml(o)}">
+        <div class="op-list-main"><span class="op-list-nome">${escapeHtml(o)}</span>${mesesHtml}</div>
+        <span class="chev">${Icon('chevron-right')}</span>
+      </div>`;
+    }).join('') || '<div class="empty-state">Nenhuma operação encontrada.</div>';
     listEl.querySelectorAll('.op-list-item').forEach(el => {
       el.onclick = () => onSelect(el.dataset.op);
     });
@@ -873,33 +928,45 @@ async function renderAjusteDetail(container, operacao) {
 // ---------------------------------------------------------------
 // Páginas de topo (lista + abertura do modal)
 // ---------------------------------------------------------------
-function renderCadastroDimensionamento(container, meta) {
+async function renderCadastroDimensionamento(container, meta) {
+  const rows = await Api.get('/api/flat/tb_premissas_dimens');
+  const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
   renderOperationList(container, meta, (operacao) => {
     openModal(`Dimensionamento · ${operacao}`, (body) => renderDimensDetail(body, operacao));
-  });
+  }, mesesMap);
 }
-function renderCadastroOverstaff(container, meta) {
+async function renderCadastroOverstaff(container, meta) {
+  const mesesMap = await mesesMapFromMetricTables(OVERSTAFF_METRICS);
   renderOperationList(container, meta, (operacao) => {
     openModal(`Premissas Overstaff · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, OVERSTAFF_METRICS, meta));
-  });
+  }, mesesMap);
 }
-function renderCadastroReceita(container, meta) {
+async function renderCadastroReceita(container, meta) {
+  const mesesMap = await mesesMapFromMetricTables(RECEITA_MONTHLY_METRICS);
   renderOperationList(container, meta, (operacao) => {
     openModal(`Premissas Receita · ${operacao}`, (body) => renderReceitaDetail(body, operacao, meta));
-  });
+  }, mesesMap);
 }
-function renderCadastroAdicionais(container, meta) {
+async function renderCadastroAdicionais(container, meta) {
+  const mesesMap = await mesesMapFromMetricTables(ADICIONAIS_METRICS);
   renderOperationList(container, meta, (operacao) => {
     openModal(`Premissas Adicionais · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, ADICIONAIS_METRICS, meta));
-  });
+  }, mesesMap);
 }
-function renderCadastroDistribuicao(container, meta) {
+async function renderCadastroDistribuicao(container, meta) {
+  const [vol, hc] = await Promise.all([
+    Api.get('/api/wide/tb_distribuicao_volume'),
+    Api.get('/api/wide/tb_distribuicao_hc'),
+  ]);
+  const mesesMap = buildMesesMap([...vol.rows, ...hc.rows], 'nom_operacao', 'referencia');
   renderOperationList(container, meta, (operacao) => {
     openModal(`Distribuição (Volume & HC) · ${operacao}`, (body) => renderDistribuicaoDetail(body, operacao, meta));
-  });
+  }, mesesMap);
 }
-function renderCadastroAjustePremissas(container, meta) {
+async function renderCadastroAjustePremissas(container, meta) {
+  const rows = await Api.get('/api/flat/tb_ajuste_premissas');
+  const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
   renderOperationList(container, meta, (operacao) => {
     openModal(`Ajuste Premissas · ${operacao}`, (body) => renderAjusteDetail(body, operacao));
-  });
+  }, mesesMap);
 }
