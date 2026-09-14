@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS cadastro_operacoes (
   gerente               TEXT,
   responsavel_pcp       TEXT,
   responsavel_fpa       TEXT,
+  tipo_escala           TEXT,
   PRIMARY KEY (filial, operacao)
 );
 
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS tb_premissas_dimens (
   ocupacao          REAL,
   hc_dimensionado   REAL,
   hc_contratado     REAL,
+  ocupacao_garantia REAL,
   PRIMARY KEY (referencia, tipo_dimens, nom_operacao)
 );
 
@@ -145,5 +147,19 @@ CREATE TABLE IF NOT EXISTS tb_bodyshop (
   referencia TEXT NOT NULL, nom_operacao TEXT NOT NULL,
   unidade TEXT NOT NULL, valor REAL,
   PRIMARY KEY (referencia, nom_operacao, unidade)
+);
+
+-- Parâmetros globais de configuração (chave/valor), ex.: peso do feriado
+-- nacional usado no cálculo de Faturamento 6x1 do Calendário.
+CREATE TABLE IF NOT EXISTS tb_parametros (
+  chave TEXT PRIMARY KEY,
+  valor REAL
+);
+
+-- Anotações livres do usuário (botão flutuante, disponível em qualquer tela).
+CREATE TABLE IF NOT EXISTS tb_anotacoes (
+  chave TEXT PRIMARY KEY,
+  texto TEXT,
+  atualizado_em TEXT
 );
 `;

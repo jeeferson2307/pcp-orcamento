@@ -35,6 +35,10 @@
   --chart-2: #EB6834;
   --chart-3: #1BAF7A;
   --chart-4: #EDA100;
+  --chart-5: #8B5CF6;
+  --chart-6: #E64980;
+  --chart-7: #12B3B3;
+  --chart-8: #795548;
   --chart-gridline: #E1E0D9;
   --chart-baseline: #C3C2B7;
 
@@ -301,14 +305,17 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
 /* ============================================================
    KPIs
    ============================================================ */
-.kpi-row { display: flex; gap: var(--sp-4); margin-bottom: var(--sp-6); flex-wrap: wrap; }
+.kpi-row { display: flex; align-items: flex-start; gap: var(--sp-4); margin-bottom: var(--sp-6); flex-wrap: wrap; }
 .kpi-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
   padding: var(--sp-4) var(--sp-5); min-width: 190px; flex: 1 1 190px;
   box-shadow: var(--shadow-sm);
 }
 .kpi-card .kpi-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: var(--sp-2); }
-.kpi-card .kpi-value { font-size: 23px; font-weight: 600; letter-spacing: -.01em; }
+.kpi-card .kpi-value { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+.kpi-sub { margin-top: var(--sp-3); padding-top: var(--sp-2); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+.kpi-sub-row { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: 11px; color: var(--text-muted); }
+.kpi-sub-row span:last-child { font-weight: 600; color: var(--text); }
 
 /* ============================================================
    Gráficos (Painel Gerencial) — SVG inline, sem dependências externas
@@ -328,6 +335,22 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
 }
 @media (max-width: 900px) {
   .chart-grid { grid-template-columns: 1fr; }
+}
+#btn-export-analitico { margin-top: var(--sp-2); }
+
+/* ============================================================
+   Botão flutuante de Anotações (disponível em qualquer tela)
+   ============================================================ */
+.fab-notas {
+  position: fixed; right: var(--sp-6); bottom: var(--sp-6); z-index: 90;
+  width: 52px; height: 52px; padding: 0; border-radius: 50%;
+  background: var(--accent); color: #fff; border: none;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-lg);
+}
+.fab-notas:hover { background: var(--accent-hover); transform: none; }
+@media (max-width: 640px) {
+  .fab-notas { right: var(--sp-4); bottom: var(--sp-4); width: 46px; height: 46px; }
 }
 
 .badge { display: inline-block; padding: 1px var(--sp-3); border-radius: 20px; font-size: 11px; font-weight: 600; }

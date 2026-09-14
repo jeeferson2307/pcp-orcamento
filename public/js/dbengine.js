@@ -71,16 +71,32 @@ const Engine = (() => {
     };
   }
 
+  // Bancos .sqlite antigos (criados antes de uma coluna nova ser adicionada ao
+  // schema) não ganham a coluna automaticamente via CREATE TABLE IF NOT EXISTS
+  // — por isso este passo de migração roda sempre, adicionando só o que faltar.
+  function migrate() {
+    const colsOp = window.DB.prepare(`PRAGMA table_info(cadastro_operacoes)`).all().map(c => c.name);
+    if (!colsOp.includes('tipo_escala')) {
+      window.DB.exec(`ALTER TABLE cadastro_operacoes ADD COLUMN tipo_escala TEXT`);
+    }
+    const colsDimens = window.DB.prepare(`PRAGMA table_info(tb_premissas_dimens)`).all().map(c => c.name);
+    if (!colsDimens.includes('ocupacao_garantia')) {
+      window.DB.exec(`ALTER TABLE tb_premissas_dimens ADD COLUMN ocupacao_garantia REAL`);
+    }
+  }
+
   return {
     async openFromBytes(uint8arr) {
       await ensureSql();
       wrap(new SQL.Database(uint8arr));
       window.DB.exec(SCHEMA_SQL);
+      migrate();
     },
     async createEmpty() {
       await ensureSql();
       wrap(new SQL.Database());
       window.DB.exec(SCHEMA_SQL);
+      migrate();
     },
     exportBytes() {
       return sqljsDb.export();

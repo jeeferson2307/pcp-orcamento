@@ -179,7 +179,9 @@ router.get('/resultado', (req, res) => {
   const responsavelPcp = req.query.responsavel || null;
   const apenasComCusto = req.query.apenasComCusto !== '0';
   try {
-    const rows = buildFinal(ano, { responsavelPcp, apenasComCusto });
+    let rows = buildFinal(ano, { responsavelPcp, apenasComCusto });
+    if (req.query.gerente) rows = rows.filter(r => r.gerente === req.query.gerente);
+    if (req.query.operacao) rows = rows.filter(r => r.operacao === req.query.operacao);
     res.json({ ano, count: rows.length, rows });
   } catch (err) {
     console.error(err);

@@ -19,6 +19,7 @@ const Fmt = {
     if (format === 'percent') return (value * 100).toFixed(2) + '%';
     if (format === 'currency') return 'R$ ' + value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (format === 'number') return value.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    if (format === 'integer') return Math.round(value).toLocaleString('pt-BR');
     if (format === 'decimal1') return Number(value).toFixed(1);
     return String(value);
   },

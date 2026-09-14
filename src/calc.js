@@ -70,16 +70,31 @@ function buildForecast(ano) {
   // os meses reais fora do ano pedido e a projeção nunca avança de ano.
   const anoMin = Math.min(...preenchidas.map(r => Number(r.referencia.slice(0, 4))));
   const anoFim = Math.max(ano, anoBase);
+  // Peso do feriado nacional cadastrado na guia Calendário (tb_parametros) —
+  // usado no cálculo de Faturamento 6x1 (padrão 0.5 se ainda não cadastrado).
+  const pesoFeriadoNacional = db.prepare(`SELECT valor FROM tb_parametros WHERE chave = 'peso_feriado_nacional'`).get()?.valor ?? 0.5;
   const cal = new Map();
   for (let a = anoMin; a <= anoFim; a++) {
-    for (const [k, v] of fnCalendarioMensal(a)) cal.set(k, v);
+    for (const [k, v] of fnCalendarioMensal(a, pesoFeriadoNacional)) cal.set(k, v);
   }
-  const diasDe = (mes) => (cal.has(mes) ? cal.get(mes).diasFaturamento : null);
+  // Tipo Escala é cadastrado por operação em Cadastro Operações (6x1/5x2) e
+  // define qual base de dias de faturamento usar na projeção de Volume:
+  // 6x1 conta sábado/domingo/feriado pela metade, 5x2 só dias úteis. Sem
+  // cadastro, assume 5x2 (mesmo critério mais conservador do padrão CLT).
+  const escalaPorOperacao = new Map();
+  for (const r of db.prepare('SELECT operacao, tipo_escala FROM cadastro_operacoes').all()) {
+    if (r.tipo_escala && !escalaPorOperacao.has(r.operacao)) escalaPorOperacao.set(r.operacao, r.tipo_escala);
+  }
+  const diasDe = (mes, nomOperacao) => {
+    const bucket = cal.get(mes);
+    if (!bucket) return null;
+    return escalaPorOperacao.get(nomOperacao) === '6x1' ? bucket.faturamento6x1 : bucket.faturamento5x2;
+  };
 
   const historico = preenchidas.filter(r => r.referencia <= mesBase);
 
   const real = historico.map(r => {
-    const diasFaturamento = diasDe(r.referencia);
+    const diasFaturamento = diasDe(r.referencia, r.nom_operacao);
     // Minutagem = produtividade líquida: minutos de volume atendidos por HC
     // efetivamente produtivo (desconta a Pausa cadastrada em Dimensionamento).
     const hcEfetivo = r.hc_dimensionado ? r.hc_dimensionado * (1 - (r.pausa ?? 0)) : 0;
@@ -118,7 +133,7 @@ function buildForecast(ano) {
     const temContratado = hcContratadoBase != null && hcContratadoBase !== 0;
 
     for (const mes of mesesProj) {
-      const dias = diasDe(mes);
+      const dias = diasDe(mes, ultima.nom_operacao);
       const ajuste = ajustes.get(`${mes}__${ultima.nom_operacao}`);
       const volPrjBase = (!diasBase) ? 0 : (volBase / diasBase) * dias;
       const volPrj = volPrjBase * (1 + (ajuste?.ajuste_volume ?? 0));
@@ -168,7 +183,12 @@ function buildComplete(ano) {
   const tbEvasoes = mapByKey(db.prepare('SELECT * FROM tb_evasoes').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbCprb = mapByKey(db.prepare('SELECT * FROM tb_cprb').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbReajuste = mapByKey(db.prepare('SELECT * FROM tb_reajuste').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
-  const tbFerNac = mapByKey(db.prepare('SELECT * FROM tb_esc_feriados_nac').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
+  // % Escala Feriado Nacional deixou de ser cadastrado por operação: é o
+  // mesmo peso global cadastrado na guia Calendário, usado no cálculo de
+  // Faturamento 6x1 (ver buildForecast). Feriado Local continua cadastrável
+  // por operação/filial (Cadastro Premissas Overstaff), mas é só informativo
+  // — não entra em nenhuma fórmula.
+  const pesoFeriadoNacional = db.prepare(`SELECT valor FROM tb_parametros WHERE chave = 'peso_feriado_nacional'`).get()?.valor ?? 0.5;
   const tbFerLoc = mapByKey(db.prepare('SELECT * FROM tb_esc_feriados_loc').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbJovens = mapByKey(db.prepare('SELECT * FROM tb_jovens').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbSpam = mapByKey(db.prepare('SELECT * FROM tb_spam').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
@@ -225,9 +245,11 @@ function buildComplete(ano) {
 
       const chaveCc = `${fil.cod_empresa}${fil.cod_filial}${cadOp.cod_centro_de_custo ?? ''}`;
       const totalTfl = abs + to_ + ferias + folga;
-      const pesoFeriadoNac = tbFerNac.get(kDist)?.valor ?? null;
+      const pesoFeriadoNac = pesoFeriadoNacional;
       const pesoFeriadoLoc = tbFerLoc.get(kDist)?.valor ?? null;
-      const ocupacaoGarantia = tipoFat === TEMPO_LOGADO ? 0.85 : 0;
+      // Cadastrada em Cadastro Dimensionamento, só preenchível quando há HC
+      // Contratado (faturamento por Tempo Logado/Posição, PA fixa).
+      const ocupacaoGarantia = f.ocupacao_garantia ?? 0;
       const qtdJovens = tbJovens.get(kDist)?.valor ?? 0;
       const hcDimJovem = hcBruto + qtdJovens;
       const spam = tbSpam.get(kDist)?.valor ?? null;

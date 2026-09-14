@@ -90,6 +90,14 @@ async function renderFlatGrid(container, table, meta) {
             </select>
           </label>`;
         }
+        if (f.type === 'select') {
+          const opts = (f.options || []).map(o => `<option value="${escapeHtml(o)}" ${draft[f.key] === o ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('');
+          return `<label class="field-label">${escapeHtml(f.label)}
+            <select class="field-input" data-key="${f.key}" ${locked ? 'disabled' : ''}>
+              <option value="">—</option>${opts}
+            </select>
+          </label>`;
+        }
         return `<label class="field-label">${escapeHtml(f.label)}
           <input class="field-input" type="${f.type === 'number' ? 'number' : 'text'}" data-key="${f.key}" value="${escapeHtml(draft[f.key] ?? '')}" ${locked ? 'disabled' : ''}>
         </label>`;

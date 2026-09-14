@@ -50,8 +50,10 @@ function fmtMes(ms) {
   return `${y}-${m}-01`;
 }
 
-// Retorna Map<'YYYY-MM-01', {diaUtil,sabado,domingo,feriados,diasFaturamento}>
-function fnCalendarioMensal(ano) {
+// Retorna Map<'YYYY-MM-01', {diaUtil,sabado,domingo,feriados,faturamento5x2,faturamento6x1}>
+// pesoFeriadoNacional: cadastrado na guia Calendário (tb_parametros), usado
+// no cálculo de Faturamento 6x1 (padrão 0.5 se ainda não cadastrado).
+function fnCalendarioMensal(ano, pesoFeriadoNacional = 0.5) {
   const feriados = new Set(feriadosNacionais(ano));
   const inicio = Date.UTC(ano, 0, 1);
   const fim = Date.UTC(ano, 11, 31);
@@ -70,7 +72,8 @@ function fnCalendarioMensal(ano) {
   }
 
   for (const bucket of meses.values()) {
-    bucket.diasFaturamento = bucket.diaUtil + bucket.feriados;
+    bucket.faturamento5x2 = bucket.diaUtil;
+    bucket.faturamento6x1 = bucket.diaUtil + ((bucket.sabado + bucket.domingo + bucket.feriados) * pesoFeriadoNacional);
   }
   return meses;
 }

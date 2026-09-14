@@ -1,10 +1,11 @@
 let META = null;
 
 const NAV = [
-  { group: 'Guia Dashboard', items: [
+  { group: 'Dashboard', items: [
     { id: 'dashboard', label: 'Painel Gerencial', icon: 'layout-dashboard' },
+    { id: 'dashboard:analitico', label: 'Analítico', icon: 'table' },
   ]},
-  { group: 'Guias de Cadastro', items: [
+  { group: 'Cadastro', items: [
     { id: 'cadastro:dimensionamento', label: 'Cadastro Dimensionamento', icon: 'sliders-horizontal' },
     { id: 'cadastro:overstaff', label: 'Cadastro Premissas Overstaff', icon: 'users' },
     { id: 'cadastro:receita', label: 'Cadastro Premissas Receita', icon: 'wallet' },
@@ -12,7 +13,7 @@ const NAV = [
     { id: 'cadastro:distribuicao', label: 'Cadastro Distribuição (Volume & HC)', icon: 'pie-chart' },
     { id: 'cadastro:ajustePremissas', label: 'Cadastro Ajuste Premissas', icon: 'trending-up' },
   ]},
-  { group: 'Outros', items: [
+  { group: 'Configuração', items: [
     { id: 'flat:d_filiais', label: 'Filiais / Unidades', icon: 'map-pin' },
     { id: 'flat:cadastro_operacoes', label: 'Cadastro Operações', icon: 'building-2' },
     { id: 'calendario', label: 'Calendário', icon: 'calendar' },
@@ -59,6 +60,7 @@ async function router() {
     // (ex.: Cadastro Operações) só apareça depois de recarregar a página.
     META = await Api.get('/api/meta');
     if (route === 'dashboard') return renderDashboardPage(body, META);
+    if (route === 'dashboard:analitico') return renderAnaliticoPage(body, META);
     if (route === 'calendario') return renderCalendarioPage(body, META);
     if (route.startsWith('wide:')) return renderWideGrid(body, route.slice(5), META);
     if (route.startsWith('flat:')) return renderFlatGrid(body, route.slice(5), META);
@@ -96,6 +98,49 @@ async function startApp() {
     if (e.target.closest('.sidebar') || e.target.closest('.mobile-nav-toggle')) return;
     document.body.classList.remove('nav-open');
   });
+
+  setupAnotacoesButton();
+}
+
+// Botão flutuante de Anotações — fica fora de #page-body (não é recriado a
+// cada navegação de rota) para aparecer em todas as telas do sistema.
+function setupAnotacoesButton() {
+  if (document.getElementById('btn-anotacoes')) return;
+  const btn = document.createElement('button');
+  btn.id = 'btn-anotacoes';
+  btn.className = 'fab-notas';
+  btn.title = 'Anotações';
+  btn.innerHTML = Icon('sticky-note', { size: 22 });
+  btn.onclick = openAnotacoesModal;
+  document.getElementById('app-root').appendChild(btn);
+}
+
+async function openAnotacoesModal() {
+  const atual = await Api.get('/api/anotacao');
+  openModal('Anotações', (body, close) => {
+    body.innerHTML = `
+      <p class="small">Anote aqui questões relevantes — fica salvo no banco de dados e pode ser editado a qualquer momento.</p>
+      <textarea id="anotacoes-texto" class="field-input" style="width:100%;min-height:260px;resize:vertical;font:inherit">${escapeHtml(atual.texto || '')}</textarea>
+      <div class="small" id="anotacoes-status" style="margin-top:8px"></div>
+      <div class="modal-actions" style="margin-top:16px">
+        <button id="anotacoes-fechar">Fechar</button>
+        <button class="primary" id="anotacoes-salvar">${Icon('check')} Salvar</button>
+      </div>
+    `;
+    const statusEl = body.querySelector('#anotacoes-status');
+    if (atual.atualizado_em) {
+      statusEl.textContent = 'Última atualização: ' + new Date(atual.atualizado_em).toLocaleString('pt-BR');
+    }
+    body.querySelector('#anotacoes-fechar').onclick = close;
+    body.querySelector('#anotacoes-salvar').onclick = async () => {
+      const texto = body.querySelector('#anotacoes-texto').value;
+      try {
+        const res = await Api.put('/api/anotacao', { texto });
+        statusEl.textContent = 'Salvo em ' + new Date(res.atualizado_em).toLocaleString('pt-BR');
+        toast('Anotações salvas.');
+      } catch (e) { toast('Erro ao salvar: ' + e.message, true); }
+    };
+  }, { size: 'form' });
 }
 
 // Modal com input próprio (em vez de confirm()+prompt()): dois diálogos nativos

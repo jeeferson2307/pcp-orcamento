@@ -23,8 +23,14 @@ const Api = {
         else if (method === 'POST') result = Store.postFlat(m[1], body);
         else if (method === 'PUT') result = Store.putFlat(m[1], body);
         else if (method === 'DELETE') result = Store.deleteFlat(m[1], body);
+      } else if ((m = path.match(/^\/api\/parametro\/([^/]+)$/))) {
+        if (method === 'GET') result = { valor: Store.getParametro(m[1], q.default != null ? Number(q.default) : null) };
+        else if (method === 'PUT') result = Store.setParametro(m[1], body.valor);
+      } else if (path === '/api/anotacao') {
+        if (method === 'GET') result = Store.getAnotacao('geral');
+        else if (method === 'PUT') result = Store.setAnotacao('geral', body.texto);
       } else if (path === '/api/resultado') {
-        result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, apenasComCusto: q.apenasComCusto !== '0' });
+        result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, apenasComCusto: q.apenasComCusto !== '0' });
       } else if (path === '/api/dashboard') {
         result = Store.getDashboard({ ano: parseInt(q.ano, 10), groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao });
       } else {

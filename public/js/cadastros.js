@@ -7,6 +7,9 @@ const OVERSTAFF_METRICS = [
   { key: 'ferias', table: 'tb_ferias', label: 'Férias', format: 'percent', hasTipoDimens: true },
   { key: 'folga', table: 'tb_folga', label: 'Folga Extra', format: 'percent', hasTipoDimens: true },
   { key: 'evasoes', table: 'tb_evasoes', label: 'Evasão Treinamento', format: 'percent', hasTipoDimens: true },
+  // Só informativo (aparece no Analítico) — não entra em nenhum cálculo,
+  // diferente do Feriado Nacional, que virou um peso global na guia Calendário.
+  { key: 'ferloc', table: 'tb_esc_feriados_loc', label: 'Feriado Local', format: 'percent', hasTipoDimens: false },
 ];
 
 const ADICIONAIS_METRICS = [
@@ -284,6 +287,9 @@ const DIMENS_FIELDS = [
   { key: 'ocupacao', label: 'Ocupação', format: 'decimal1' },
   { key: 'hc_dimensionado', label: 'HC Dimensionado', format: 'number' },
   { key: 'hc_contratado', label: 'HC Contratado', format: 'number' },
+  // Só faz sentido (e só é editável) quando há HC Contratado (faturamento por
+  // Tempo Logado/Posição, PA fixa) — ver dependsOn abaixo.
+  { key: 'ocupacao_garantia', label: 'Ocupação Garantia', format: 'percent', dependsOn: 'hc_contratado' },
 ];
 
 async function renderDimensDetail(container, operacao) {
@@ -374,17 +380,34 @@ async function renderDimensDetail(container, operacao) {
           <label class="field-label">Operação
             <input class="field-input" type="text" value="${escapeHtml(operacao)}" disabled>
           </label>
-          ${DIMENS_FIELDS.map(f => `
-            <label class="field-label">${labelWithUnit(f)}
-              <input class="field-input" type="text" data-key="${f.key}" value="${Fmt.toEdit(draft[f.key], f.format)}">
-            </label>
-          `).join('')}
+          ${DIMENS_FIELDS.map(f => {
+            const bloqueado = f.dependsOn && !(draft[f.dependsOn] != null && draft[f.dependsOn] !== 0);
+            const valor = bloqueado ? '' : Fmt.toEdit(draft[f.key], f.format);
+            return `<label class="field-label">${labelWithUnit(f)}
+              <input class="field-input" type="text" data-key="${f.key}" value="${valor}" ${bloqueado ? 'disabled title="Só pode ser preenchido quando HC Contratado tiver um valor"' : ''}>
+            </label>`;
+          }).join('')}
         </div>
         <div class="modal-actions">
           <button id="dim-cancel">Cancelar</button>
           <button class="primary" id="dim-save">${Icon('check')} Salvar</button>
         </div>
       `;
+
+      // Campos com dependsOn só ficam editáveis enquanto o campo do qual
+      // dependem tiver valor preenchido (ex.: Ocupação Garantia exige HC
+      // Contratado) — limpa e desabilita assim que a dependência esvazia.
+      DIMENS_FIELDS.filter(f => f.dependsOn).forEach(f => {
+        const depInput = body.querySelector(`[data-key="${f.dependsOn}"]`);
+        const depField = DIMENS_FIELDS.find(x => x.key === f.dependsOn);
+        const targetInput = body.querySelector(`[data-key="${f.key}"]`);
+        depInput.addEventListener('input', () => {
+          const val = Fmt.fromEdit(depInput.value, depField ? depField.format : 'number');
+          const habilitado = val != null && val !== 0;
+          targetInput.disabled = !habilitado;
+          if (!habilitado) targetInput.value = '';
+        });
+      });
 
       body.querySelector('#dim-cancel').onclick = close;
       body.querySelector('#dim-save').onclick = async () => {

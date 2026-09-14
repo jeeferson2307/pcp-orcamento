@@ -31,6 +31,8 @@ const ICON_PATHS = {
   save: '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" /><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" /><path d="M7 3v4a1 1 0 0 0 1 1h7" />',
   menu: '<path d="M4 5h16" /><path d="M4 12h16" /><path d="M4 19h16" />',
   pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" />',
+  table: '<path d="M12 3v18" /><path d="M3 9h18" /><path d="M3 15h18" /><rect x="3" y="3" width="18" height="18" rx="2" />',
+  'sticky-note': '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11l5-5V5a2 2 0 0 0-2-2Z" /><path d="M15 3v4a2 2 0 0 0 2 2h4" />',
 };
 
 function Icon(name, opts = {}) {

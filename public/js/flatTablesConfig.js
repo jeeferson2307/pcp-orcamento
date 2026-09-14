@@ -28,6 +28,7 @@ const FLAT_TABLES = {
       { key: 'gerente', label: 'Gerente', type: 'text' },
       { key: 'responsavel_pcp', label: 'Responsável PCP', type: 'text' },
       { key: 'responsavel_fpa', label: 'Responsável FP&A', type: 'text' },
+      { key: 'tipo_escala', label: 'Tipo Escala', type: 'select', options: ['6x1', '5x2'] },
     ],
   },
   tb_premissas_dimens: { pk: ['referencia', 'tipo_dimens', 'nom_operacao'], label: 'Premissas de Dimensionamento' },

@@ -145,8 +145,41 @@ const Store = {
     return { ok: true };
   },
 
-  getResultado({ ano, responsavel, apenasComCusto }) {
-    const rows = buildFinal(ano, { responsavelPcp: responsavel || null, apenasComCusto: apenasComCusto !== false });
+  // Parâmetros globais de configuração (chave/valor) — ex.: peso do feriado
+  // nacional usado no cálculo de Faturamento 6x1 do Calendário.
+  getParametro(chave, def = null) {
+    const row = DB.prepare('SELECT valor FROM tb_parametros WHERE chave = ?').get(chave);
+    return row ? row.valor : def;
+  },
+
+  setParametro(chave, valor) {
+    const existe = DB.prepare('SELECT chave FROM tb_parametros WHERE chave = ?').get(chave);
+    if (existe) DB.prepare('UPDATE tb_parametros SET valor = ? WHERE chave = ?').run(valor, chave);
+    else DB.prepare('INSERT INTO tb_parametros (chave, valor) VALUES (?, ?)').run(chave, valor);
+    notifyChanged();
+    return { ok: true };
+  },
+
+  // Anotações livres do usuário (botão flutuante) — hoje uma única nota
+  // global ("geral"), editável a qualquer momento.
+  getAnotacao(chave = 'geral') {
+    const row = DB.prepare('SELECT texto, atualizado_em FROM tb_anotacoes WHERE chave = ?').get(chave);
+    return row || { texto: '', atualizado_em: null };
+  },
+
+  setAnotacao(chave, texto) {
+    const agora = new Date().toISOString();
+    const existe = DB.prepare('SELECT chave FROM tb_anotacoes WHERE chave = ?').get(chave);
+    if (existe) DB.prepare('UPDATE tb_anotacoes SET texto = ?, atualizado_em = ? WHERE chave = ?').run(texto, agora, chave);
+    else DB.prepare('INSERT INTO tb_anotacoes (chave, texto, atualizado_em) VALUES (?, ?, ?)').run(chave, texto, agora);
+    notifyChanged();
+    return { ok: true, atualizado_em: agora };
+  },
+
+  getResultado({ ano, responsavel, gerente, operacao, apenasComCusto }) {
+    let rows = buildFinal(ano, { responsavelPcp: responsavel || null, apenasComCusto: apenasComCusto !== false });
+    if (gerente) rows = rows.filter(r => r.gerente === gerente);
+    if (operacao) rows = rows.filter(r => r.operacao === operacao);
     return { ano, count: rows.length, rows };
   },
 
@@ -227,22 +260,34 @@ const Store = {
 
     // Série mensal para os gráficos — independente do Agrupar por/Drill,
     // sempre respeita os filtros (ano, responsável, gerente, operação).
+    // Restrita aos 12 meses do "Ano" selecionado (buildFinal devolve real +
+    // projetado de vários anos; sem esse filtro os gráficos/estatísticas
+    // mensais misturariam meses de anos diferentes).
     const byMes = new Map();
     for (const r of rows) {
       const mk = r.referencia;
+      if (!mk || !mk.startsWith(String(ano))) continue;
       if (!byMes.has(mk)) byMes.set(mk, []);
       byMes.get(mk).push(r);
     }
     const porMes = [...byMes.entries()].map(([mes, list]) => {
-      let volume = 0, volumeXTma = 0, hc = 0, receita = 0;
+      let volume = 0, volumeXTma = 0, hc = 0, receita = 0, fte = 0;
       for (const r of list) {
         const vol = r._volume_revisado || 0;
         volume += vol;
         volumeXTma += vol * (r._tma || 0);
         hc += r.hc_dim || 0;
         receita += r.receita_bruta || 0;
+        fte += r.fte_financeiro || 0;
       }
-      return { mes, hc, volume, receita, tma: volume > 0 ? volumeXTma / volume : 0 };
+      return {
+        mes, hc, volume, receita, fte, tma: volume > 0 ? volumeXTma / volume : 0,
+        rob: fte > 0 ? receita / fte : 0,
+        absenteismo: weighted(list, 'absenteismo'),
+        turnover: weighted(list, 'turnover'),
+        ferias: weighted(list, 'ferias'),
+        folga_extra: weighted(list, 'folga_extra'),
+      };
     }).sort((a, b) => (a.mes < b.mes ? -1 : a.mes > b.mes ? 1 : 0));
 
     const totals = summarize(rows);

@@ -27,6 +27,43 @@ function groupRowCells(g) {
   `;
 }
 
+// Peso de cada mês do ano para a "Média/Mês" ponderada dos cards de KPI —
+// usa a mesma base de Faturamento 5x2 (= dias úteis) da guia Calendário.
+// Só um peso genérico por mês (não por operação/Tipo Escala) porque o card
+// agrega várias operações de uma vez; é uma aproximação razoável para não
+// tratar todo mês como igual (fev pesa menos que um mês de 22 dias úteis).
+function pesosDiasFaturamentoPorMes(ano) {
+  const cal = fnCalendarioMensal(ano);
+  const pesos = new Map();
+  for (const [mes, b] of cal) pesos.set(mes, b.faturamento5x2);
+  return pesos;
+}
+
+// Média ponderada (por dias de faturamento do mês), máximo e mínimo de um
+// campo de `porMes` — usado nos cards de Receita Bruta/HC Dimensionado/FTE
+// Financeiro do Painel Gerencial.
+function monthlyStats(porMes, key, pesos) {
+  if (!porMes.length) return { media: 0, max: 0, min: 0 };
+  let num = 0, den = 0;
+  const vals = porMes.map(m => m[key] || 0);
+  for (const m of porMes) {
+    const peso = pesos.get(m.mes) ?? 1;
+    num += (m[key] || 0) * peso;
+    den += peso;
+  }
+  return { media: den > 0 ? num / den : 0, max: Math.max(...vals), min: Math.min(...vals) };
+}
+
+function kpiSubStats(stats, format) {
+  return `
+    <div class="kpi-sub">
+      <div class="kpi-sub-row"><span>Média/Mês</span><span>${Fmt.display(stats.media, format)}</span></div>
+      <div class="kpi-sub-row"><span>Máximo</span><span>${Fmt.display(stats.max, format)}</span></div>
+      <div class="kpi-sub-row"><span>Mínimo</span><span>${Fmt.display(stats.min, format)}</span></div>
+    </div>
+  `;
+}
+
 // Repopula um <select> de filtro preservando a seleção atual quando ela
 // ainda é válida no novo conjunto de opções (filtros "relativos": mudar um
 // nível recalcula o que os demais podem oferecer). Retorna true se a seleção
@@ -131,6 +168,7 @@ async function renderDashboardPage(container, meta) {
       <label>Operação <select id="d-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
     </div>
     <div id="kpis" class="kpi-row"></div>
+    <div id="kpis2" class="kpi-row"></div>
 
     <div class="section-title">Resumo por <span id="group-label"></span> <span class="small" id="drill-hint"></span></div>
     <div class="panel"><table class="grid" id="tbl-dash"></table></div>
@@ -142,8 +180,20 @@ async function renderDashboardPage(container, meta) {
       <div class="panel chart-card" id="chart-tma"></div>
       <div class="panel chart-card" id="chart-receita"></div>
     </div>
+
+    <div class="section-title">Absenteísmo, Turnover, Férias e Folga por mês</div>
+    <div class="chart-grid">
+      <div class="panel chart-card" id="chart-absenteismo"></div>
+      <div class="panel chart-card" id="chart-turnover"></div>
+      <div class="panel chart-card" id="chart-ferias"></div>
+      <div class="panel chart-card" id="chart-folga"></div>
+    </div>
+
+    <button class="primary" id="btn-export-analitico">${Icon('table')} Export</button>
   `;
   applyIcons(container);
+
+  container.querySelector('#btn-export-analitico').onclick = () => { location.hash = 'dashboard:analitico'; };
 
   let data = null;
 
@@ -179,11 +229,19 @@ async function renderDashboardPage(container, meta) {
 
   function drawKpis() {
     const t = data.totals;
+    const ano = parseInt(document.getElementById('d-ano').value, 10);
+    const pesos = pesosDiasFaturamentoPorMes(ano);
+    const receitaStats = monthlyStats(data.porMes, 'receita', pesos);
+    const hcStats = monthlyStats(data.porMes, 'hc', pesos);
+    const fteStats = monthlyStats(data.porMes, 'fte', pesos);
+    const robStats = monthlyStats(data.porMes, 'rob', pesos);
     document.getElementById('kpis').innerHTML = `
-      <div class="kpi-card"><div class="kpi-label">Receita Bruta (total)</div><div class="kpi-value">${Fmt.display(t.receita_bruta,'currency')}</div></div>
-      <div class="kpi-card"><div class="kpi-label">HC Dimensionado (total)</div><div class="kpi-value">${Fmt.display(t.hc_dim,'number')}</div></div>
-      <div class="kpi-card"><div class="kpi-label">FTE Financeiro (total)</div><div class="kpi-value">${Fmt.display(t.fte_financeiro,'number')}</div></div>
-      <div class="kpi-card"><div class="kpi-label">ROB/Financeiro</div><div class="kpi-value">${Fmt.display(t.rob_financeiro,'currency')}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Receita Bruta (total)</div><div class="kpi-value">${Fmt.display(t.receita_bruta,'currency')}</div>${kpiSubStats(receitaStats,'currency')}</div>
+      <div class="kpi-card"><div class="kpi-label">HC Dimensionado (total)</div><div class="kpi-value">${Fmt.display(t.hc_dim,'integer')}</div>${kpiSubStats(hcStats,'integer')}</div>
+      <div class="kpi-card"><div class="kpi-label">FTE Financeiro (total)</div><div class="kpi-value">${Fmt.display(t.fte_financeiro,'integer')}</div>${kpiSubStats(fteStats,'integer')}</div>
+      <div class="kpi-card"><div class="kpi-label">ROB/Financeiro</div><div class="kpi-value">${Fmt.display(t.rob_financeiro,'currency')}</div>${kpiSubStats(robStats,'currency')}</div>
+    `;
+    document.getElementById('kpis2').innerHTML = `
       <div class="kpi-card"><div class="kpi-label">Absenteísmo (méd. pond. HC)</div><div class="kpi-value">${Fmt.display(t.absenteismo,'percent')}</div></div>
       <div class="kpi-card"><div class="kpi-label">Turnover (méd. pond. HC)</div><div class="kpi-value">${Fmt.display(t.turnover,'percent')}</div></div>
       <div class="kpi-card"><div class="kpi-label">Férias (méd. pond. HC)</div><div class="kpi-value">${Fmt.display(t.ferias,'percent')}</div></div>
@@ -212,6 +270,26 @@ async function renderDashboardPage(container, meta) {
       title: 'Receita Bruta x Mês', color: 'var(--chart-4)',
       data: porMes.map(m => ({ mes: m.mes, valor: m.receita })),
       valueLabel: v => Fmt.display(v, 'currency'),
+    });
+    renderBarChart(document.getElementById('chart-absenteismo'), {
+      title: 'Absenteísmo x Mês', color: 'var(--chart-5)',
+      data: porMes.map(m => ({ mes: m.mes, valor: m.absenteismo })),
+      valueLabel: v => Fmt.display(v, 'percent'),
+    });
+    renderBarChart(document.getElementById('chart-turnover'), {
+      title: 'Turnover x Mês', color: 'var(--chart-6)',
+      data: porMes.map(m => ({ mes: m.mes, valor: m.turnover })),
+      valueLabel: v => Fmt.display(v, 'percent'),
+    });
+    renderBarChart(document.getElementById('chart-ferias'), {
+      title: 'Férias x Mês', color: 'var(--chart-7)',
+      data: porMes.map(m => ({ mes: m.mes, valor: m.ferias })),
+      valueLabel: v => Fmt.display(v, 'percent'),
+    });
+    renderBarChart(document.getElementById('chart-folga'), {
+      title: 'Folga Adicional x Mês', color: 'var(--chart-8)',
+      data: porMes.map(m => ({ mes: m.mes, valor: m.folga_extra })),
+      valueLabel: v => Fmt.display(v, 'percent'),
     });
   }
 
@@ -259,47 +337,187 @@ async function renderDashboardPage(container, meta) {
 }
 
 // ---------------------------------------------------------------
-// Calendário — exibe a tabela mensal calculada por fnCalendarioMensal
-// (calendario.js): dias úteis, sábados, domingos, feriados nacionais e
-// dias de faturamento (dia útil + feriado) por mês, base de todo o cálculo
-// de projeção de Volume em calc.js/buildForecast.
+// Analítico — visão completa, linha a linha, de tudo que entra no cálculo de
+// dimensionamento e receita (TB_PROJECAO_FORECAST_FINAL), com os mesmos
+// filtros do Painel Gerencial (Ano/Responsável PCP/Gerente/Operação) e
+// exportação para CSV/XLSX.
 // ---------------------------------------------------------------
-function renderCalendarioPage(container, meta) {
+const ANALITICO_COLUMNS = [
+  { key: 'referencia', label: 'Mês', format: 'mes' },
+  { key: '_tipo_linha', label: 'Tipo Linha', format: 'text' },
+  { key: 'diretoria', label: 'Diretoria', format: 'text' },
+  { key: 'gerente', label: 'Gerente', format: 'text' },
+  { key: 'responsavel_pcp', label: 'Responsável PCP', format: 'text' },
+  { key: 'responsavel_fpa', label: 'Responsável FP&A', format: 'text' },
+  { key: 'un_dre', label: 'UN DRE', format: 'text' },
+  { key: 'cliente', label: 'Cliente', format: 'text' },
+  { key: 'operacao', label: 'Operação', format: 'text' },
+  { key: 'site', label: 'Site / Filial', format: 'text' },
+  { key: 'cod_empresa', label: 'Cód. Empresa', format: 'text' },
+  { key: 'cod_filial', label: 'Cód. Filial', format: 'text' },
+  { key: 'cod_cc', label: 'Cód. Centro de Custo', format: 'text' },
+  { key: 'desc_centro_custo', label: 'Descrição Centro de Custo', format: 'text' },
+  { key: 'faturamento', label: 'Tipo Faturamento', format: 'text' },
+  { key: '_tipo_dimens', label: 'Tipo Dimensionamento', format: 'text' },
+  { key: '_volume_revisado', label: 'Volume Revisado', format: 'number' },
+  { key: '_tma', label: 'TMA (seg)', format: 'decimal1' },
+  { key: 'posicao_contratada', label: 'HC Contratado', format: 'number' },
+  { key: '_hc_revisado', label: 'HC Revisado', format: 'number' },
+  { key: 'hc_dim', label: 'HC Dimensionado', format: 'number' },
+  { key: 'hc_dim_jovem', label: 'HC Dim. + Jovem Aprendiz', format: 'number' },
+  { key: 'hc_custo_jovem', label: 'Qtd. Jovem Aprendiz', format: 'number' },
+  { key: 'hc_treinamento', label: 'HC Treinamento (Contratações)', format: 'number' },
+  { key: 'spam_supervisao', label: 'Spam Supervisão', format: 'number' },
+  { key: 'supervisor', label: 'Supervisores', format: 'number' },
+  { key: 'fte_financeiro', label: 'FTE Financeiro', format: 'number' },
+  { key: 'pa_hc_infra', label: 'PA HC Infra', format: 'number' },
+  { key: 'taxa_ocup_pa_infra', label: 'Taxa Ocupação PA Infra', format: 'percent' },
+  { key: 'ocupacao_garantia', label: 'Ocupação Garantia', format: 'percent' },
+  { key: 'pct_escala_fer_nac', label: '% Escala Feriado Nacional', format: 'percent' },
+  { key: 'pct_escala_local', label: '% Escala Feriado Local', format: 'percent' },
+  { key: 'absenteismo', label: 'Absenteísmo', format: 'percent' },
+  { key: 'turnover', label: 'Turnover', format: 'percent' },
+  { key: 'ferias', label: 'Férias', format: 'percent' },
+  { key: 'folga_extra', label: 'Folga Adicional', format: 'percent' },
+  { key: 'total_tfl', label: 'Total TFL', format: 'percent' },
+  { key: 'evasao', label: 'Evasão', format: 'percent' },
+  { key: 'cprb_aplicado', label: 'CPRB Aplicado', format: 'text' },
+  { key: 'cprb_pct', label: 'CPRB %', format: 'percent' },
+  { key: 'reajuste_aplicado', label: 'Reajuste Aplicado', format: 'text' },
+  { key: 'reajuste_pct', label: 'Reajuste %', format: 'percent' },
+  { key: 'receita_bruta', label: 'Receita Bruta', format: 'currency' },
+];
+
+function analiticoRowToDisplay(r) {
+  return ANALITICO_COLUMNS.map(c => c.format === 'mes' ? Fmt.mes(r[c.key]) : Fmt.display(r[c.key], c.format));
+}
+
+async function renderAnaliticoPage(container, meta) {
+  container.innerHTML = `
+    <div class="toolbar">
+      <label>Ano <select id="a-ano">${yearOptions()}</select></label>
+      <label>Responsável PCP <select id="a-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+      <label>Gerente <select id="a-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+      <label>Operação <select id="a-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+    </div>
+    <div class="toolbar">
+      <input type="text" id="a-busca" class="op-search" placeholder="Buscar em qualquer coluna…">
+      <span class="small" id="a-count"></span>
+      <button id="btn-export-csv">${Icon('download')} Exportar CSV</button>
+      <button id="btn-export-xlsx">${Icon('download')} Exportar XLSX</button>
+    </div>
+    <div class="panel"><table class="grid" id="tbl-analitico"></table></div>
+  `;
+  applyIcons(container);
+
+  let rows = [];
+  let filtered = [];
+
+  function draw() {
+    const busca = document.getElementById('a-busca').value.trim().toLowerCase();
+    filtered = !busca ? rows : rows.filter(r =>
+      ANALITICO_COLUMNS.some(c => String(r[c.key] ?? '').toLowerCase().includes(busca)));
+    document.getElementById('a-count').textContent = `${filtered.length} linha(s)`;
+
+    const tbl = document.getElementById('tbl-analitico');
+    tbl.innerHTML = `<thead><tr>${ANALITICO_COLUMNS.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}</tr></thead>`;
+    const tbody = document.createElement('tbody');
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${ANALITICO_COLUMNS.length}"><div class="empty-state">Nenhuma linha encontrada.</div></td></tr>`;
+    }
+    for (const r of filtered) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = analiticoRowToDisplay(r).map(v => `<td>${escapeHtml(v)}</td>`).join('');
+      tbody.appendChild(tr);
+    }
+    tbl.appendChild(tbody);
+  }
+
+  async function load() {
+    const ano = document.getElementById('a-ano').value;
+    const responsavel = document.getElementById('a-resp').value;
+    const gerente = document.getElementById('a-gerente').value;
+    const operacao = document.getElementById('a-operacao').value;
+    const resp = await Api.get(`/api/resultado?ano=${ano}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}`);
+    rows = resp.rows;
+    draw();
+  }
+
+  function exportar(formato) {
+    const aaData = [ANALITICO_COLUMNS.map(c => c.label), ...filtered.map(analiticoRowToDisplay)];
+    const ano = document.getElementById('a-ano').value;
+    if (formato === 'csv') ExportUtil.downloadCsv(`analitico_${ano}.csv`, aaData);
+    else ExportUtil.downloadXlsx(`analitico_${ano}.xlsx`, aaData, 'Analítico');
+  }
+
+  document.getElementById('a-ano').onchange = load;
+  document.getElementById('a-resp').onchange = load;
+  document.getElementById('a-gerente').onchange = load;
+  document.getElementById('a-operacao').onchange = load;
+  document.getElementById('a-busca').oninput = draw;
+  document.getElementById('btn-export-csv').onclick = () => exportar('csv');
+  document.getElementById('btn-export-xlsx').onclick = () => exportar('xlsx');
+
+  await load();
+}
+
+// ---------------------------------------------------------------
+// Calendário — exibe a tabela mensal calculada por fnCalendarioMensal
+// (calendario.js): dias úteis, sábados, domingos, feriados nacionais e as
+// duas bases de faturamento (5x2 e 6x1) por mês, usadas pelo cálculo de
+// projeção de Volume em calc.js/buildForecast de acordo com o Tipo Escala
+// cadastrado em Cadastro Operações.
+// ---------------------------------------------------------------
+async function renderCalendarioPage(container, meta) {
+  const pesoAtual = await Api.get('/api/parametro/peso_feriado_nacional?default=0.5');
+  let pesoFeriadoNacional = pesoAtual.valor ?? 0.5;
+
   container.innerHTML = `
     <div class="toolbar">
       <label>Ano <select id="cal-ano">${yearOptions()}</select></label>
+      <label>Peso Feriado Nacional <input class="field-input" type="text" id="cal-peso" style="max-width:100px" value="${Fmt.toEdit(pesoFeriadoNacional,'percent')}"></label>
+      <span class="small">usado no cálculo de Faturamento 6x1: dias úteis + ((sábado+domingo+feriados) × peso)</span>
     </div>
     <div class="panel"><table class="grid" id="tbl-calendario"></table></div>
   `;
 
   function draw() {
     const ano = parseInt(document.getElementById('cal-ano').value, 10);
-    const meses = fnCalendarioMensal(ano);
+    const meses = fnCalendarioMensal(ano, pesoFeriadoNacional);
     const linhas = [...meses.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
 
-    const totais = { diaUtil: 0, sabado: 0, domingo: 0, feriados: 0, diasFaturamento: 0 };
+    const totais = { diaUtil: 0, sabado: 0, domingo: 0, feriados: 0, faturamento5x2: 0, faturamento6x1: 0 };
     for (const [, b] of linhas) {
       totais.diaUtil += b.diaUtil;
       totais.sabado += b.sabado;
       totais.domingo += b.domingo;
       totais.feriados += b.feriados;
-      totais.diasFaturamento += b.diasFaturamento;
+      totais.faturamento5x2 += b.faturamento5x2;
+      totais.faturamento6x1 += b.faturamento6x1;
     }
 
     const tbl = document.getElementById('tbl-calendario');
-    tbl.innerHTML = `<thead><tr><th>Mês</th><th>Dia Útil</th><th>Sábado</th><th>Domingo</th><th>Feriados</th><th>Dias Faturamento</th></tr></thead>`;
+    tbl.innerHTML = `<thead><tr><th>Mês</th><th>Dia Útil</th><th>Sábado</th><th>Domingo</th><th>Feriados</th><th>Faturamento 5x2</th><th>Faturamento 6x1</th></tr></thead>`;
     const tbody = document.createElement('tbody');
     for (const [mes, b] of linhas) {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td class="id-col">${Fmt.mes(mes)}</td><td>${b.diaUtil}</td><td>${b.sabado}</td><td>${b.domingo}</td><td>${b.feriados}</td><td>${b.diasFaturamento}</td>`;
+      tr.innerHTML = `<td class="id-col">${Fmt.mes(mes)}</td><td>${b.diaUtil}</td><td>${b.sabado}</td><td>${b.domingo}</td><td>${b.feriados}</td><td>${Fmt.display(b.faturamento5x2,'decimal1')}</td><td>${Fmt.display(b.faturamento6x1,'decimal1')}</td>`;
       tbody.appendChild(tr);
     }
     const trTotal = document.createElement('tr');
-    trTotal.innerHTML = `<td class="total-ok">Total ${ano}</td><td class="total-ok">${totais.diaUtil}</td><td class="total-ok">${totais.sabado}</td><td class="total-ok">${totais.domingo}</td><td class="total-ok">${totais.feriados}</td><td class="total-ok">${totais.diasFaturamento}</td>`;
+    trTotal.innerHTML = `<td class="total-ok">Total ${ano}</td><td class="total-ok">${totais.diaUtil}</td><td class="total-ok">${totais.sabado}</td><td class="total-ok">${totais.domingo}</td><td class="total-ok">${totais.feriados}</td><td class="total-ok">${Fmt.display(totais.faturamento5x2,'decimal1')}</td><td class="total-ok">${Fmt.display(totais.faturamento6x1,'decimal1')}</td>`;
     tbody.appendChild(trTotal);
     tbl.appendChild(tbody);
   }
 
   document.getElementById('cal-ano').onchange = draw;
+  document.getElementById('cal-peso').onchange = async (e) => {
+    const novo = Fmt.fromEdit(e.target.value, 'percent');
+    if (novo == null) { toast('Informe um peso válido.', true); e.target.value = Fmt.toEdit(pesoFeriadoNacional, 'percent'); return; }
+    pesoFeriadoNacional = novo;
+    await Api.put('/api/parametro/peso_feriado_nacional', { valor: novo });
+    toast('Peso Feriado Nacional atualizado.');
+    draw();
+  };
   draw();
 }
