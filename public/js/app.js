@@ -18,6 +18,9 @@ const NAV = [
     { id: 'flat:cadastro_operacoes', label: 'Cadastro Operações', icon: 'building-2' },
     { id: 'calendario', label: 'Calendário', icon: 'calendar' },
   ]},
+  { group: 'Glossário/Regras', items: [
+    { id: 'glossario', label: 'Glossário/Regras', icon: 'book-open' },
+  ]},
 ];
 
 const CADASTRO_RENDERERS = {
@@ -62,6 +65,7 @@ async function router() {
     if (route === 'dashboard') return renderDashboardPage(body, META);
     if (route === 'dashboard:analitico') return renderAnaliticoPage(body, META);
     if (route === 'calendario') return renderCalendarioPage(body, META);
+    if (route === 'glossario') return renderGlossarioPage(body, META);
     if (route.startsWith('wide:')) return renderWideGrid(body, route.slice(5), META);
     if (route.startsWith('flat:')) return renderFlatGrid(body, route.slice(5), META);
     if (route.startsWith('cadastro:')) {

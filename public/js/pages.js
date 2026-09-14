@@ -521,3 +521,239 @@ async function renderCalendarioPage(container, meta) {
   };
   draw();
 }
+
+// ---------------------------------------------------------------
+// Glossário/Regras — página estática explicando, de forma didática, o
+// pipeline de cálculo (TB_PREMISSAS_DIMENS -> FORECAST -> COMPLETO -> FINAL),
+// a lógica de projeção do Forecast e os quatro Tipos de Faturamento.
+// Não depende do banco — é só documentação embutida no próprio sistema.
+// ---------------------------------------------------------------
+function renderGlossarioPage(container) {
+  container.innerHTML = `
+    <div class="glossario">
+      <div class="panel glossario-block">
+        <p>Esta página explica, em linguagem simples, como o sistema transforma o que é cadastrado
+        (Volume, TMA, HC Contratado, Absenteísmo, Turnover...) na Receita Bruta e no HC/FTE que aparecem
+        no Painel Gerencial e no Analítico. Não é preciso entender tudo de uma vez — use o índice abaixo
+        para ir direto ao ponto que interessa.</p>
+        <div class="glossario-toc">
+          <a href="#" data-target="glo-pipeline">1. Pipeline de cálculo</a>
+          <a href="#" data-target="glo-projecao">2. Mês-base e projeção do Forecast</a>
+          <a href="#" data-target="glo-minutagem">3. Minutagem e HC projetado</a>
+          <a href="#" data-target="glo-distribuicao">4. Distribuição por Filial</a>
+          <a href="#" data-target="glo-overstaff">5. Overstaff (TFL)</a>
+          <a href="#" data-target="glo-faturamento">6. Tipos de Faturamento</a>
+          <a href="#" data-target="glo-contratacoes">7. Contratações e Evasão</a>
+          <a href="#" data-target="glo-receita">8. CPRB, Reajuste e Receita</a>
+          <a href="#" data-target="glo-indicadores">9. FTE, ROB e PA HC Infra</a>
+          <a href="#" data-target="glo-calendario">10. Calendário e Tipo Escala</a>
+          <a href="#" data-target="glo-informativos">11. Campos informativos</a>
+          <a href="#" data-target="glo-painel">12. Estatísticas do Painel</a>
+        </div>
+      </div>
+
+      <div class="panel glossario-block" id="glo-pipeline">
+        <h2>1. Pipeline de cálculo</h2>
+        <p>Todo número que você vê no sistema nasce de 4 etapas, cada uma alimentando a próxima —
+        a mesma estrutura das queries do <code>MODEL.xlsb</code> original:</p>
+        <ol>
+          <li><strong>TB_PREMISSAS_DIMENS</strong> — o que você cadastra em <em>Cadastro Dimensionamento</em>:
+          Volume, TMA, Pausa, Ocupação, HC Dimensionado, HC Contratado e (opcional) Ocupação Garantia, mês a
+          mês, por operação.</li>
+          <li><strong>FORECAST</strong> — pega os meses reais cadastrados e <em>projeta</em> os meses
+          seguintes (Volume, TMA, Pausa, HC), sem ainda saber nada sobre filial, faturamento ou overstaff.
+          Ver seção 2.</li>
+          <li><strong>COMPLETO</strong> — pega cada linha do Forecast e multiplica pelas filiais cadastradas,
+          aplicando a % de Distribuição, Overstaff (Absenteísmo/Turnover/Férias/Folga), o Tipo de
+          Faturamento, CPRB/Reajuste etc. É aqui que nascem Receita Bruta, HC Dimensionado, FTE Financeiro.</li>
+          <li><strong>FINAL</strong> — a mesma coisa que o COMPLETO, só que filtrando fora as linhas sem
+          custo (FTE Financeiro = 0) e, se pedido, por um Responsável PCP específico. É o que alimenta o
+          Painel Gerencial e o Analítico.</li>
+        </ol>
+      </div>
+
+      <div class="panel glossario-block" id="glo-projecao">
+        <h2>2. Mês-base e projeção do Forecast</h2>
+        <h3>O que é o mês-base</h3>
+        <p>É o <strong>mês mais recente</strong>, para cada operação, que tem Volume ou HC Contratado
+        preenchido em Cadastro Dimensionamento. Todo mês até o mês-base é tratado como <strong>REAL</strong>
+        (dado histórico, não recalculado). Todo mês depois do mês-base é <strong>PROJETADO</strong>
+        (calculado automaticamente pelo sistema).</p>
+        <h3>Como o Volume é projetado</h3>
+        <p>O sistema não simplesmente repete o volume do mês-base — ele ajusta pela quantidade de dias
+        de faturamento de cada mês (ver seção 10), para que um mês com mais dias úteis (ou feriados,
+        conforme a escala) tenha naturalmente mais volume projetado:</p>
+        <p><code>Volume Projetado = (Volume do mês-base / Dias do mês-base) × Dias do mês projetado</code></p>
+        <p>Depois disso, se houver uma % cadastrada em <em>Cadastro Ajuste Premissas</em> para aquele mês
+        e operação, ela é aplicada por cima do Volume, do TMA e da Pausa — é a forma de você quebrar a
+        herança automática e simular reajustes/reduções futuras sem mexer no dado real do mês-base.
+        Ajustes só têm efeito em meses projetados; no mês-base e antes, são ignorados.</p>
+        <h3>Como o HC Dimensionado é projetado</h3>
+        <p>Depende de existir HC Contratado cadastrado (faturamento por Tempo Logado/Posição, "PA fixa"):</p>
+        <ul>
+          <li><strong>Com HC Contratado:</strong> o HC Dimensionado projetado é simplesmente o mesmo HC
+          Contratado do mês-base, repetido em todos os meses seguintes (é um número fechado por contrato,
+          não varia com volume).</li>
+          <li><strong>Sem HC Contratado:</strong> o sistema resolve o HC pela fórmula inversa da
+          Minutagem — ver seção 3.</li>
+        </ul>
+      </div>
+
+      <div class="panel glossario-block" id="glo-minutagem">
+        <h2>3. Minutagem e HC projetado</h2>
+        <p><strong>Minutagem</strong> é a produtividade líquida observada no mês-base: quantos minutos de
+        atendimento cada HC efetivamente produtivo consegue realizar.</p>
+        <p><code>HC Efetivo = HC Dimensionado × (1 − Pausa)</code></p>
+        <p><code>Minutagem = (Volume × TMA) / 60 / HC Efetivo</code></p>
+        <p>Nos meses projetados, o sistema assume que essa produtividade <strong>se mantém constante</strong>
+        e usa a fórmula invertida para descobrir quanto HC é necessário para o novo Volume/TMA/Pausa
+        (já com os Ajustes de Premissas aplicados):</p>
+        <p><code>HC Projetado = (Volume Projetado × TMA Projetado) / 60 / (Minutagem × (1 − Pausa Projetada))</code></p>
+        <p>Ou seja: se o volume sobe, mais HC é necessário para manter a mesma produtividade — a menos que
+        a operação tenha HC Contratado fixo (PA fixa), caso em que o HC simplesmente não muda com o volume.</p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-distribuicao">
+        <h2>4. Distribuição de Volume &amp; HC por Filial</h2>
+        <p>Até aqui, tudo foi calculado <strong>por operação</strong>, sem falar em filial. A etapa
+        COMPLETO reparte esse total entre as filiais usando as % cadastradas em <em>Cadastro Distribuição
+        (Volume &amp; HC)</em>: uma % de Volume e uma % de HC, mês a mês, que devem somar 100% entre as
+        filiais daquela operação.</p>
+        <p>Se um mês novo (geralmente projetado) não tiver % cadastrada, o sistema usa a
+        <strong>última % conhecida</strong> daquela operação/filial — assim você não precisa recadastrar a
+        distribuição toda vez que estende o Dimensionamento para um mês novo.</p>
+        <p>Exceção: quando o faturamento é por Tempo Logado/Posição <strong>e</strong> há HC Contratado, o
+        HC não é rateado pela % de Distribuição — ele usa o HC Contratado direto (é um número fechado por
+        contrato, não uma grandeza a dividir entre sites).</p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-overstaff">
+        <h2>5. Overstaff (TFL): Absenteísmo, Turnover, Férias, Folga</h2>
+        <p>Cadastrados por filial/mês em <em>Cadastro Premissas Overstaff</em>, esses quatro indicadores
+        somados formam o <strong>Total TFL</strong>:</p>
+        <p><code>Total TFL = Absenteísmo + Turnover + Férias + Folga Extra</code></p>
+        <p>O TFL representa a fração do quadro que, na prática, não está disponível para atender (ausências,
+        desligamentos, férias, folgas) — por isso o HC "bruto" precisa ser maior que o HC "líquido"
+        necessário para cobrir a operação:</p>
+        <p><code>HC Bruto = HC Revisado / (1 − Total TFL)</code></p>
+        <p><strong>Importante:</strong> essa inflação pelo TFL não se aplica a toda operação por igual — ver
+        a diferença entre Tempo Logado e os demais tipos na seção 6.</p>
+        <p>O Turnover também gera <strong>Reposições</strong> (quantas contratações são necessárias para
+        repor quem sai): <code>Reposições = arredondar para cima(HC Dimensionado × Turnover × %HC da
+        filial)</code>. Ver seção 7.</p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-faturamento">
+        <h2>6. Tipos de Faturamento</h2>
+        <p>Cadastrado por filial/operação em <em>Cadastro Premissas Receita</em>, o Tipo de Faturamento
+        define qual grandeza (HC ou Volume) gera receita, e qual fórmula de HC Bruto se aplica:</p>
+        <div class="panel"><table class="grid">
+          <thead><tr><th>Tipo</th><th>O que fatura</th><th>Numerador de Faturamento</th><th>HC Bruto infla por TFL?</th></tr></thead>
+          <tbody>
+            <tr><td class="id-col">Tempo Logado</td><td>Tempo logado do agente (posições/horas)</td><td><code>HC Revisado ÷ Ocupação</code></td><td>Não — HC Bruto = HC Revisado</td></tr>
+            <tr><td class="id-col">Posição</td><td>Posição de atendimento (PA) fixa contratada</td><td><code>HC Revisado ÷ Ocupação</code></td><td>Sim — HC Bruto = HC Revisado ÷ (1 − TFL)</td></tr>
+            <tr><td class="id-col">Minutagem</td><td>Minutos de chamada atendidos</td><td><code>Volume Revisado × (1 − Abandono − Shortcalls) × TMA ÷ 60</code></td><td>Sim — HC Bruto = HC Revisado ÷ (1 − TFL)</td></tr>
+            <tr><td class="id-col">Evento</td><td>Quantidade de chamadas/eventos atendidos</td><td><code>Volume Revisado × (1 − Abandono − Shortcalls)</code></td><td>Sim — HC Bruto = HC Revisado ÷ (1 − TFL)</td></tr>
+          </tbody>
+        </table></div>
+        <p>Repare que <strong>Tempo Logado</strong> e <strong>Posição</strong> usam exatamente a mesma
+        fórmula de faturamento (HC Revisado ÷ Ocupação) — a diferença de negócio entre "pagar por tempo
+        logado" e "pagar por posição fixa" não muda a receita, mas muda como o HC Bruto (o indicador
+        "HC Dimensionado" exibido no sistema) é calculado: só o Tempo Logado fica isento da inflação por
+        Absenteísmo/Turnover/Férias/Folga.</p>
+        <p>Depois de calculado, o Numerador de Faturamento vira Receita — ver seção 8.</p>
+        <p><strong>Ocupação</strong>, usada no numerador de Tempo Logado/Posição, é o campo cadastrado em
+        Cadastro Dimensionamento (formato <code>#.#</code>) — a taxa de ocupação esperada do agente/posição.
+        <strong>Abandono</strong> e <strong>Shortcalls</strong> são cadastrados em Cadastro Premissas Receita
+        e reduzem o volume que efetivamente gera faturamento em Minutagem/Evento.</p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-contratacoes">
+        <h2>7. Contratações Adicionais e Evasão de Treinamento</h2>
+        <p>Além das Reposições por Turnover (seção 5), você pode cadastrar <strong>Contratações
+        Adicionais</strong> em Cadastro Premissas Adicionais — headcount extra que você já sabe que vai
+        contratar, independente do turnover.</p>
+        <p><code>Total de Contratações = arredondar para cima((Reposições + Contratações Adicionais) / (1 − Evasão))</code></p>
+        <p>A <strong>Evasão</strong> (cadastrada em Overstaff) representa a fração de quem entra em
+        treinamento e não conclui/não fica — por isso o total de contratações precisa ser maior que a
+        necessidade líquida, para compensar essa perda. Esse total vira o <strong>HC Treinamento</strong>
+        exibido no Analítico, e é somado ao HC Bruto para formar o FTE Financeiro (seção 9).</p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-receita">
+        <h2>8. CPRB, Reajuste Contratual e Receita Bodyshop</h2>
+        <p>O <strong>Unitário G3</strong> (cadastrado por filial/operação em Cadastro Premissas Receita) é
+        ajustado mês a mês por dois percentuais cadastrados separadamente (CPRB e Reajuste Contratual):</p>
+        <p><code>Unitário Reajustado = Unitário G3 × (1 + CPRB%) × (1 + Reajuste%)</code></p>
+        <p>A Receita Bruta final soma ainda a Receita Bodyshop (cadastrada à parte, não depende de HC/Volume):</p>
+        <p><code>Receita Bruta = Numerador de Faturamento × Unitário Reajustado + Receita Bodyshop</code></p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-indicadores">
+        <h2>9. FTE Financeiro, ROB/Financeiro e PA HC Infra</h2>
+        <ul>
+          <li><strong>FTE Financeiro</strong> (também chamado HC Custo) = HC Bruto + Total de Contratações —
+          é o headcount total que gera custo, usado como denominador do ROB.</li>
+          <li><strong>ROB/Financeiro</strong> = Receita Bruta ÷ FTE Financeiro — quanto de receita cada FTE
+          gera. É a régua de eficiência mostrada no topo do Painel Gerencial.</li>
+          <li><strong>PA HC Infra</strong> — estimativa de posições de atendimento físicas/infraestrutura
+          necessárias: <code>HC Revisado ÷ Ocupação</code> para Tempo Logado/Posição, ou
+          <code>(HC Revisado ÷ Ocupação) × 1.06</code> para Minutagem/Evento (os 6% a mais cobrem um buffer
+          de infraestrutura que esses tipos de operação costumam precisar).</li>
+          <li><strong>Taxa Ocupação PA Infra</strong> = HC Revisado ÷ PA HC Infra — o quão ocupada está essa
+          infraestrutura estimada.</li>
+        </ul>
+      </div>
+
+      <div class="panel glossario-block" id="glo-calendario">
+        <h2>10. Calendário e Tipo Escala</h2>
+        <p>A guia Calendário calcula, para cada mês do ano, quantos dias úteis, sábados, domingos e
+        feriados nacionais existem, e a partir disso duas bases de "dias de faturamento" usadas para
+        projetar o Volume (seção 2):</p>
+        <ul>
+          <li><strong>Faturamento 5x2</strong> = dias úteis do mês (escala tradicional, sem operação em
+          fim de semana).</li>
+          <li><strong>Faturamento 6x1</strong> = dias úteis + ((sábados + domingos + feriados) × Peso
+          Feriado Nacional) — para operações que funcionam também aos fins de semana/feriados, mas contando
+          esses dias com um peso menor (por padrão 0.5, editável na própria guia Calendário).</li>
+        </ul>
+        <p>Qual das duas bases é usada na projeção de cada operação depende do campo <strong>Tipo
+        Escala</strong> (6x1 ou 5x2), cadastrado em Cadastro Operações — se não for cadastrado, o sistema
+        assume 5x2 por padrão (critério mais conservador).</p>
+      </div>
+
+      <div class="panel glossario-block" id="glo-informativos">
+        <h2>11. Campos informativos (não entram em nenhum cálculo)</h2>
+        <p>Alguns campos existem para consulta/registro, mas não alteram Receita, HC ou FTE:</p>
+        <ul>
+          <li><strong>Ocupação Garantia</strong> — cadastrada em Cadastro Dimensionamento, só habilitada
+          quando há HC Contratado preenchido. É uma referência de negócio (o percentual de ocupação
+          garantido contratualmente), mas hoje não entra em nenhuma fórmula.</li>
+          <li><strong>Feriado Local</strong> — cadastrado por operação/filial em Cadastro Premissas
+          Overstaff. Diferente do Feriado Nacional (seção 10), que virou um peso global usado no cálculo,
+          o Feriado Local é só um registro — aparece no Analítico, mas não influencia a projeção.</li>
+        </ul>
+      </div>
+
+      <div class="panel glossario-block" id="glo-painel">
+        <h2>12. Estatísticas do Painel Gerencial</h2>
+        <p>Os cards de Receita Bruta, HC Dimensionado, FTE Financeiro e ROB/Financeiro mostram, além do
+        total do período, três números calculados sobre a série mensal do ano selecionado:</p>
+        <ul>
+          <li><strong>Média/Mês</strong> — não é uma média simples: é ponderada pelo Faturamento 5x2 (dias
+          úteis) de cada mês, para que um mês mais curto (ex.: fevereiro) pese menos que um mês mais longo
+          no cálculo da média.</li>
+          <li><strong>Máximo</strong> e <strong>Mínimo</strong> — o maior e o menor valor mensal observado
+          no ano selecionado, simples (sem ponderação).</li>
+        </ul>
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll('.glossario-toc a').forEach(a => {
+    a.onclick = (e) => {
+      e.preventDefault();
+      document.getElementById(a.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  });
+}

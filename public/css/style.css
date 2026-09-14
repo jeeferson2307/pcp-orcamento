@@ -353,6 +353,27 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
   .fab-notas { right: var(--sp-4); bottom: var(--sp-4); width: 46px; height: 46px; }
 }
 
+/* ============================================================
+   Glossário/Regras — página de documentação estática
+   ============================================================ */
+.glossario { max-width: 880px; }
+.glossario-toc { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-bottom: var(--sp-5); }
+.glossario-toc a { font-size: 12.5px; color: var(--accent); text-decoration: none; }
+.glossario-toc a:hover { text-decoration: underline; }
+.glossario-block { padding: var(--sp-5) var(--sp-6); margin-bottom: var(--sp-5); scroll-margin-top: var(--sp-5); }
+.glossario-block h2 { font-size: 16px; font-weight: 600; margin: 0 0 var(--sp-4); color: var(--text); }
+.glossario-block h3 { font-size: 13px; font-weight: 600; margin: var(--sp-5) 0 var(--sp-2); color: var(--text); }
+.glossario-block h3:first-of-type { margin-top: 0; }
+.glossario-block p { margin: 0 0 var(--sp-3); color: var(--text-muted); }
+.glossario-block p:last-child { margin-bottom: 0; }
+.glossario-block ul, .glossario-block ol { margin: 0 0 var(--sp-3); padding-left: 20px; color: var(--text-muted); }
+.glossario-block li { margin-bottom: var(--sp-2); }
+.glossario-block li:last-child { margin-bottom: 0; }
+.glossario-block strong { color: var(--text); font-weight: 600; }
+.glossario-block code { background: var(--surface-alt); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--text); white-space: nowrap; }
+.glossario-block table.grid { margin-top: var(--sp-2); margin-bottom: var(--sp-3); table-layout: auto; }
+.glossario-block table.grid td, .glossario-block table.grid th { white-space: normal; }
+
 .badge { display: inline-block; padding: 1px var(--sp-3); border-radius: 20px; font-size: 11px; font-weight: 600; }
 .badge.ok { background: var(--accent-soft); color: var(--accent); }
 .badge.no { background: var(--surface-alt); color: var(--text-muted); }

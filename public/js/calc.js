@@ -230,7 +230,12 @@ function buildComplete(ano) {
       const reajuste = tbReajuste.get(kDist) || {};
       const unitarioReajustado = (unit.unitario_g3 ?? 0) * (1 + (cprb.valor ?? 0)) * (1 + (reajuste.valor ?? 0));
 
-      const hcBruto = isHcBased ? hcRevisado : hcRevisado / (1 - (abs + to_ + ferias + folga));
+      // TEMPO LOGADO: HC Bruto = HC Revisado direto (PA fixa por tempo logado,
+      // não infla por TFL). POSIÇÃO: apesar de também ser PA fixa (HC Revisado
+      // vem do HC Contratado, não de Distribuição), o HC Bruto SIM é inflado
+      // por Absenteísmo/Turnover/Férias/Folga, igual Minutagem/Evento — só
+      // Contratações Adicionais entram por cima na sequência (hcCusto).
+      const hcBruto = tipoFat === TEMPO_LOGADO ? hcRevisado : hcRevisado / (1 - (abs + to_ + ferias + folga));
       const hcCusto = hcBruto + totalContratacoes;
 
       let numeradorFaturamento = 0;
