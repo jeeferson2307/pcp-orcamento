@@ -10,7 +10,13 @@ sem Node, sem npm, sem servidor.** É só abrir o arquivo `public/index.html`.
    o navegador).
 2. Na tela inicial, clique em **"Abrir banco de dados existente"** e
    selecione `data/dimensionamento.db` (já vem com os dados atuais do
-   `MODEL.xlsb`, importados uma vez).
+   `MODEL.xlsb`, importados uma vez). Uma segunda janela pode aparecer
+   pedindo para confirmar a **pasta** desse arquivo (já abre direto nela,
+   só confirme) — é assim que o sistema consegue mostrar, na barra lateral,
+   o caminho da pasta junto do nome do arquivo (o navegador nunca revela o
+   caminho completo do Windows, só o que o usuário confirmar explicitamente).
+   Se você cancelar essa segunda janela, tudo funciona normalmente, só que
+   sem esse detalhe extra.
 3. Pronto. Toda edição feita no sistema é **salva automaticamente de volta
    nesse mesmo arquivo** — pode fechar e abrir de novo, o arquivo sempre
    reflete o estado mais atual (igual ao Excel, mas sem precisar clicar em

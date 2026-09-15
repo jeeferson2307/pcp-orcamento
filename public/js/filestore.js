@@ -3,8 +3,11 @@
 // autosave no IndexedDB do navegador + botão de download manual (como no Excel).
 const FileStore = (() => {
   let fileHandle = null;
+  let dirHandle = null;
+  let filePath = null;
   let saveTimer = null;
   const SUPPORTS_FS_ACCESS = typeof window.showOpenFilePicker === 'function';
+  const SUPPORTS_DIR_PICKER = typeof window.showDirectoryPicker === 'function';
 
   function idbOpen() {
     return new Promise((resolve, reject) => {
@@ -68,6 +71,41 @@ const FileStore = (() => {
     } catch (e) {
       if (e.name === 'AbortError') throw e;
       return pickerFn(opts);
+    }
+  }
+
+  // O navegador nunca revela o caminho absoluto de um arquivo no disco (é uma
+  // restrição de segurança de todos os navegadores, não uma limitação nossa)
+  // — só dá pra saber o nome do arquivo. O mais próximo que dá pra chegar é
+  // pedir também a pasta (o usuário precisa confirmar numa segunda janela,
+  // que já abre direto na pasta certa) e calcular o caminho RELATIVO a ela
+  // com FileSystemDirectoryHandle.resolve(). Se o usuário cancelar essa
+  // segunda janela, seguimos normalmente só com o nome do arquivo.
+  async function relativePathFor(fh, { allowPrompt = true } = {}) {
+    // Primeiro tenta em silêncio, sem popup: se já temos uma pasta com
+    // permissão ainda válida (desta sessão ou salva de uma anterior) e o
+    // arquivo está dentro dela, não precisa perguntar de novo.
+    if (dirHandle) {
+      try {
+        if ((await dirHandle.queryPermission({ mode: 'read' })) === 'granted') {
+          const parts = await dirHandle.resolve(fh);
+          if (parts) return [dirHandle.name, ...parts].join('/');
+        }
+      } catch { /* pasta guardada não é mais válida — cai para perguntar de novo abaixo */ }
+    }
+    // showDirectoryPicker exige um gesto do usuário — não pode ser chamado
+    // numa reabertura automática (tryReopenLast), só em ações explícitas
+    // (Abrir/Criar), senão o navegador rejeita ou mostra um popup indesejado.
+    if (!allowPrompt || !SUPPORTS_DIR_PICKER) return null;
+    try {
+      const dir = await window.showDirectoryPicker({ id: 'pcp-db-folder', mode: 'read', startIn: fh });
+      const parts = await dir.resolve(fh);
+      if (!parts) return null; // pasta escolhida não contém esse arquivo
+      dirHandle = dir;
+      await idbSet('last-dir-handle', dir);
+      return [dir.name, ...parts].join('/');
+    } catch {
+      return null; // usuário cancelou a janela da pasta — segue só com o nome do arquivo
     }
   }
 
@@ -166,6 +204,7 @@ const FileStore = (() => {
       if (podeEscrever) {
         fileHandle = handle;
         await idbSet('last-handle', handle);
+        filePath = await relativePathFor(handle);
       } else {
         fileHandle = null;
         toast('Este navegador não permitiu salvar direto em "' + file.name + '". As alterações serão salvas neste navegador — use "⬇ Backup" para exportar.', true);
@@ -183,6 +222,7 @@ const FileStore = (() => {
       fileHandle = handle;
       await doAutosave();
       await idbSet('last-handle', handle);
+      filePath = await relativePathFor(handle);
       return handle.name;
     },
 
@@ -198,6 +238,11 @@ const FileStore = (() => {
         const bytes = new Uint8Array(await file.arrayBuffer());
         await Engine.openFromBytes(bytes);
         fileHandle = handle;
+        // Reabertura automática, sem gesto do usuário — não dá pra abrir uma
+        // janela de seleção de pasta aqui. Só tenta em silêncio, usando uma
+        // pasta já concedida (guardada) e ainda com permissão válida.
+        try { dirHandle = await idbGet('last-dir-handle'); } catch { dirHandle = null; }
+        filePath = await relativePathFor(handle, { allowPrompt: false });
         return file.name;
       } catch {
         return null;
@@ -208,11 +253,15 @@ const FileStore = (() => {
       const bytes = new Uint8Array(await fileObj.arrayBuffer());
       await Engine.openFromBytes(bytes);
       fileHandle = null;
+      dirHandle = null;
+      filePath = null;
     },
 
     async createEmptyFallback() {
       await Engine.createEmpty();
       fileHandle = null;
+      dirHandle = null;
+      filePath = null;
     },
 
     async tryResumeAutosave() {
@@ -225,9 +274,16 @@ const FileStore = (() => {
 
     hasFileHandle() { return !!fileHandle; },
     currentFileName() { return fileHandle ? fileHandle.name : null; },
+    // Caminho relativo à pasta escolhida pelo usuário (ex.: "ORCAMENTO_2027/
+    // dimensionamento.sqlite") — nunca o caminho absoluto do Windows, que o
+    // navegador não expõe para nenhum site por segurança. null quando o
+    // usuário não confirmou (ou cancelou) a janela de seleção de pasta.
+    currentFilePath() { return filePath; },
 
     forget() {
       fileHandle = null;
+      dirHandle = null;
+      filePath = null;
     },
 
     // "Publicar Orçamento": salva uma cópia nomeada (não altera o arquivo de

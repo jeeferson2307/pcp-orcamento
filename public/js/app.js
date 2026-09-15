@@ -84,7 +84,12 @@ async function startApp() {
   document.getElementById('app-root').style.display = '';
   buildNav();
   META = await Api.get('/api/meta');
-  document.getElementById('brand-file').textContent = FileStore.currentFileName() || '(salvo neste navegador)';
+  const brandFileEl = document.getElementById('brand-file');
+  const brandFileText = FileStore.currentFilePath() || FileStore.currentFileName() || '(salvo neste navegador)';
+  brandFileEl.textContent = brandFileText;
+  brandFileEl.title = FileStore.currentFilePath()
+    ? brandFileText + ' (caminho relativo à pasta selecionada — o navegador não permite mostrar o caminho completo do Windows)'
+    : brandFileText;
   window.addEventListener('hashchange', router);
   router();
 
