@@ -27,6 +27,17 @@ Se o navegador não suportar, o sistema cai automaticamente em modo alternativo:
 salva sozinho dentro do próprio navegador (não se perde ao fechar a aba) e
 oferece um botão **"⬇ Backup"** para baixar uma cópia `.sqlite` manualmente.
 
+Alguns ambientes (política corporativa, ou a página aberta dentro de um
+visualizador embutido do Teams/Outlook/SharePoint em vez do navegador
+propriamente dito) **têm Chrome/Edge, mas mesmo assim recusam a permissão de
+escrita direta no arquivo** (erro típico: "Not allowed to request permissions
+in this context"). Nesse caso o sistema também cai automaticamente no mesmo
+modo alternativo acima — o arquivo é lido normalmente, mas as edições ficam
+salvas neste navegador, com aviso na tela pedindo para usar o botão
+**"⬇ Backup"**. Para voltar a salvar direto no arquivo, abra o
+`public/index.html` numa janela normal do Chrome/Edge (fora do
+Teams/Outlook/SharePoint).
+
 ### Onde guardar o arquivo `.db`
 
 Pode manter `data/dimensionamento.db` na mesma pasta do OneDrive onde hoje
