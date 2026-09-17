@@ -1,5 +1,9 @@
 // Modal genérico (overlay + caixa) usado pelos cadastros com drill-down por operação.
 // opts.size: 'form' para uma caixa mais estreita (formulários), padrão = grade larga.
+// opts.onClose (opcional): chamado sempre que o modal fecha (X, clique fora,
+// Esc, ou close() programático) — usado pela lista de operações para
+// recarregar o resumo de meses cadastrados assim que o usuário volta para
+// ela, sem precisar navegar para outra página e voltar.
 function openModal(title, buildContentFn, opts = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -14,7 +18,13 @@ function openModal(title, buildContentFn, opts = {}) {
   `;
   document.body.appendChild(overlay);
 
-  function close() { overlay.remove(); }
+  let closed = false;
+  function close() {
+    if (closed) return;
+    closed = true;
+    overlay.remove();
+    if (opts.onClose) opts.onClose();
+  }
   overlay.querySelector('.modal-close').onclick = close;
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   document.addEventListener('keydown', function onEsc(e) {

@@ -1530,18 +1530,53 @@ async function importAjusteTemplate(operacao, file, reload) {
 // ---------------------------------------------------------------
 // Páginas de topo (lista + abertura do modal)
 // ---------------------------------------------------------------
+// Evita que o reload disparado pelo fechamento do frame (opts.onClose)
+// sobrescreva outra página: o modal fica sobre #page-body mas não é
+// destruído se o usuário navegar para outra tela antes de fechá-lo.
+function isCurrentRoute(route) {
+  return (location.hash || '').slice(1) === route;
+}
+
+// Preserva o texto buscado na lista de operações através de um reload (ver
+// `onClose` abaixo): sem isso, reabrir a lista limparia o campo de busca.
+function currentOpFilter(container) {
+  const el = container.querySelector('#op-search-input');
+  return el ? el.value : '';
+}
+function restoreOpFilter(container, value) {
+  if (!value) return;
+  const el = container.querySelector('#op-search-input');
+  if (el) { el.value = value; el.dispatchEvent(new Event('input')); }
+}
+
+// Cada cadastro recarrega a lista (resumo de meses por operação) sempre que
+// o frame de uma operação fecha — via `opts.onClose` do openModal — para que
+// "Nenhum mês cadastrado" atualize assim que o usuário registra algo, sem
+// precisar navegar para outra página e voltar.
 async function renderCadastroDimensionamento(container, meta) {
-  const rows = await Api.get('/api/flat/tb_premissas_dimens');
-  const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
-  renderOperationList(container, meta, (operacao) => {
-    openModal(`Dimensionamento · ${operacao}`, (body) => renderDimensDetail(body, operacao));
-  }, mesesMap);
+  async function load() {
+    if (!isCurrentRoute('cadastro:dimensionamento')) return;
+    const filtro = currentOpFilter(container);
+    const rows = await Api.get('/api/flat/tb_premissas_dimens');
+    const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
+    renderOperationList(container, meta, (operacao) => {
+      openModal(`Dimensionamento · ${operacao}`, (body) => renderDimensDetail(body, operacao), { onClose: load });
+    }, mesesMap);
+    restoreOpFilter(container, filtro);
+  }
+  await load();
 }
 async function renderCadastroOverstaff(container, meta) {
-  const mesesMap = await mesesMapFromMetricTables(OVERSTAFF_METRICS);
-  renderOperationList(container, meta, (operacao) => {
-    openModal(`Premissas Overstaff · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, OVERSTAFF_METRICS, meta, { filenamePrefix: 'overstaff' }));
-  }, mesesMap);
+  async function load() {
+    if (!isCurrentRoute('cadastro:overstaff')) return;
+    const filtro = currentOpFilter(container);
+    const mesesMap = await mesesMapFromMetricTables(OVERSTAFF_METRICS);
+    renderOperationList(container, meta, (operacao) => {
+      openModal(`Premissas Overstaff · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, OVERSTAFF_METRICS, meta, { filenamePrefix: 'overstaff' }), { onClose: load });
+    }, mesesMap);
+    restoreOpFilter(container, filtro);
+  }
+  await load();
 }
 // Além dos meses da grade mensal (CPRB/Reajuste/Bodyshop), marca com
 // `onlyUnitarios` as operações que já têm Unitário de Faturamento
@@ -1558,31 +1593,55 @@ async function receitaMesesMap() {
   return mesesMap;
 }
 async function renderCadastroReceita(container, meta) {
-  const mesesMap = await receitaMesesMap();
-  renderOperationList(container, meta, (operacao) => {
-    openModal(`Premissas Receita · ${operacao}`, (body) => renderReceitaDetail(body, operacao, meta));
-  }, mesesMap);
+  async function load() {
+    if (!isCurrentRoute('cadastro:receita')) return;
+    const filtro = currentOpFilter(container);
+    const mesesMap = await receitaMesesMap();
+    renderOperationList(container, meta, (operacao) => {
+      openModal(`Premissas Receita · ${operacao}`, (body) => renderReceitaDetail(body, operacao, meta), { onClose: load });
+    }, mesesMap);
+    restoreOpFilter(container, filtro);
+  }
+  await load();
 }
 async function renderCadastroAdicionais(container, meta) {
-  const mesesMap = await mesesMapFromMetricTables(ADICIONAIS_METRICS);
-  renderOperationList(container, meta, (operacao) => {
-    openModal(`Premissas Adicionais · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, ADICIONAIS_METRICS, meta, { filenamePrefix: 'adicionais' }));
-  }, mesesMap);
+  async function load() {
+    if (!isCurrentRoute('cadastro:adicionais')) return;
+    const filtro = currentOpFilter(container);
+    const mesesMap = await mesesMapFromMetricTables(ADICIONAIS_METRICS);
+    renderOperationList(container, meta, (operacao) => {
+      openModal(`Premissas Adicionais · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, ADICIONAIS_METRICS, meta, { filenamePrefix: 'adicionais' }), { onClose: load });
+    }, mesesMap);
+    restoreOpFilter(container, filtro);
+  }
+  await load();
 }
 async function renderCadastroDistribuicao(container, meta) {
-  const [vol, hc] = await Promise.all([
-    Api.get('/api/wide/tb_distribuicao_volume'),
-    Api.get('/api/wide/tb_distribuicao_hc'),
-  ]);
-  const mesesMap = buildMesesMap([...vol.rows, ...hc.rows], 'nom_operacao', 'referencia');
-  renderOperationList(container, meta, (operacao) => {
-    openModal(`Distribuição (Volume & HC) · ${operacao}`, (body) => renderDistribuicaoDetail(body, operacao, meta));
-  }, mesesMap);
+  async function load() {
+    if (!isCurrentRoute('cadastro:distribuicao')) return;
+    const filtro = currentOpFilter(container);
+    const [vol, hc] = await Promise.all([
+      Api.get('/api/wide/tb_distribuicao_volume'),
+      Api.get('/api/wide/tb_distribuicao_hc'),
+    ]);
+    const mesesMap = buildMesesMap([...vol.rows, ...hc.rows], 'nom_operacao', 'referencia');
+    renderOperationList(container, meta, (operacao) => {
+      openModal(`Distribuição (Volume & HC) · ${operacao}`, (body) => renderDistribuicaoDetail(body, operacao, meta), { onClose: load });
+    }, mesesMap);
+    restoreOpFilter(container, filtro);
+  }
+  await load();
 }
 async function renderCadastroAjustePremissas(container, meta) {
-  const rows = await Api.get('/api/flat/tb_ajuste_premissas');
-  const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
-  renderOperationList(container, meta, (operacao) => {
-    openModal(`Ajuste Premissas · ${operacao}`, (body) => renderAjusteDetail(body, operacao));
-  }, mesesMap);
+  async function load() {
+    if (!isCurrentRoute('cadastro:ajustePremissas')) return;
+    const filtro = currentOpFilter(container);
+    const rows = await Api.get('/api/flat/tb_ajuste_premissas');
+    const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
+    renderOperationList(container, meta, (operacao) => {
+      openModal(`Ajuste Premissas · ${operacao}`, (body) => renderAjusteDetail(body, operacao), { onClose: load });
+    }, mesesMap);
+    restoreOpFilter(container, filtro);
+  }
+  await load();
 }
