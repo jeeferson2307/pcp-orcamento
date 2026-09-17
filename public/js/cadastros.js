@@ -75,8 +75,14 @@ async function mesesMapFromMetricTables(metrics) {
   return buildMesesMap(allRows, 'nom_operacao', 'referencia');
 }
 
+// `info.onlyUnitarios` (usado só pelo Cadastro Premissas Receita): a operação
+// não tem nenhum mês na grade mensal (CPRB/Reajuste/Bodyshop), mas já tem
+// Unitário de Faturamento cadastrado por filial — evita o aviso de "nenhum
+// mês cadastrado" quando na verdade já existe alguma premissa preenchida.
 function mesInfoLabel(info) {
-  if (!info || info.count === 0) return null;
+  if (!info) return null;
+  if (info.onlyUnitarios) return 'Unitário de faturamento cadastrado (nenhum mês mensal ainda)';
+  if (info.count === 0) return null;
   if (info.count === 1) return `1 mês cadastrado · ${Fmt.mes(info.min)}`;
   return `${info.count} meses cadastrados · ${Fmt.mes(info.min)} a ${Fmt.mes(info.max)}`;
 }
@@ -85,12 +91,10 @@ function mesInfoLabel(info) {
 // Lista vertical de operações (comum a todos os cadastros abaixo).
 // `mesesPorOperacao` (opcional): Map operação -> {count, min, max} — quando
 // presente, mostra abaixo do nome da operação um resumo dos meses
-// cadastrados (ou um aviso quando não há nenhum).
-// `itemActions` (opcional): { onDownload(operacao), onUpload(operacao) } —
-// quando presente, cada item ganha os botões "Baixar modelo" e "Importar
-// planilha" (ver buildDimensTemplateCsv e afins, mais abaixo).
+// cadastrados (ou um aviso quando não há nenhum). Baixar/importar modelo de
+// planilha fica dentro do frame de cada operação (ver render*Detail abaixo).
 // ---------------------------------------------------------------
-function renderOperationList(container, meta, onSelect, mesesPorOperacao, itemActions) {
+function renderOperationList(container, meta, onSelect, mesesPorOperacao) {
   container.innerHTML = `
     <div class="search-input op-search"><span data-icon="search"></span><input type="text" id="op-search-input" placeholder="Buscar operação…"></div>
     <div class="op-list" id="op-list"></div>
@@ -108,28 +112,13 @@ function renderOperationList(container, meta, onSelect, mesesPorOperacao, itemAc
           ? `<span class="op-list-meses">${label}</span>`
           : `<span class="op-list-meses op-list-meses-vazio">${Icon('circle-alert', { size: 12 })} Nenhum mês cadastrado</span>`;
       }
-      const actionsHtml = itemActions ? `
-        <div class="op-list-actions">
-          <button class="icon-btn op-btn-download" title="Baixar modelo de planilha desta operação">${Icon('download', { size: 14 })}</button>
-          <button class="icon-btn op-btn-upload" title="Importar planilha preenchida desta operação">${Icon('upload', { size: 14 })}</button>
-        </div>` : '';
       return `<div class="op-list-item" data-op="${escapeHtml(o)}">
         <div class="op-list-main"><span class="op-list-nome">${escapeHtml(o)}</span>${mesesHtml}</div>
-        <div class="op-list-right">
-          ${actionsHtml}
-          <span class="chev">${Icon('chevron-right')}</span>
-        </div>
+        <span class="chev">${Icon('chevron-right')}</span>
       </div>`;
     }).join('') || '<div class="empty-state">Nenhuma operação encontrada.</div>';
     listEl.querySelectorAll('.op-list-item').forEach(el => {
-      const operacao = el.dataset.op;
-      el.onclick = () => onSelect(operacao);
-      if (itemActions) {
-        const dlBtn = el.querySelector('.op-btn-download');
-        const upBtn = el.querySelector('.op-btn-upload');
-        dlBtn.onclick = (e) => { e.stopPropagation(); itemActions.onDownload(operacao); };
-        upBtn.onclick = (e) => { e.stopPropagation(); itemActions.onUpload(operacao); };
-      }
+      el.onclick = () => onSelect(el.dataset.op);
     });
   }
   container.querySelector('#op-search-input').oninput = (e) => draw(e.target.value);
@@ -154,34 +143,53 @@ async function resolveTipoDimensMap(operacao) {
 // formulário em janela (uma janela por mês, com todas as filiais juntas).
 // Usado por Overstaff, Adicionais e a parte mensal de Receita.
 // ---------------------------------------------------------------
-async function renderMetricGridFormDetail(container, operacao, metrics, meta) {
+// `templateOpts` (opcional) = { filenamePrefix }: quando presente, mostra no
+// toolbar os botões de baixar modelo / importar planilha desta grade (ver
+// downloadMetricGridTemplate/importMetricGridTemplate mais abaixo). Ausente
+// quando esta grade é só uma seção de um frame maior que já tem seus
+// próprios botões combinados (ex.: a parte mensal do Cadastro Receita).
+async function renderMetricGridFormDetail(container, operacao, metrics, meta, templateOpts) {
   const filiais = meta.filiais;
   const needsTipo = metrics.some(m => m.hasTipoDimens);
-  const tipoDimensMap = needsTipo ? await resolveTipoDimensMap(operacao) : null;
-  const tipoFor = (mes) => (tipoDimensMap ? tipoDimensMap.get(mes) : undefined);
 
-  const dataByMetric = {};
-  for (const m of metrics) {
-    const res = await Api.get(`/api/wide/${m.table}`);
-    dataByMetric[m.key] = res.rows.filter(r => r.nom_operacao === operacao);
-  }
-  const monthsSet = new Set();
-  metrics.forEach(m => dataByMetric[m.key].forEach(r => monthsSet.add(r.referencia)));
-  let months = [...monthsSet].sort();
+  async function load() {
+    const tipoDimensMap = needsTipo ? await resolveTipoDimensMap(operacao) : null;
+    const tipoFor = (mes) => (tipoDimensMap ? tipoDimensMap.get(mes) : undefined);
 
-  function findRow(metricKey, mes) {
-    return dataByMetric[metricKey].find(r => r.referencia === mes);
-  }
+    const dataByMetric = {};
+    for (const m of metrics) {
+      const res = await Api.get(`/api/wide/${m.table}`);
+      dataByMetric[m.key] = res.rows.filter(r => r.nom_operacao === operacao);
+    }
+    const monthsSet = new Set();
+    metrics.forEach(m => dataByMetric[m.key].forEach(r => monthsSet.add(r.referencia)));
+    let months = [...monthsSet].sort();
 
-  container.innerHTML = `
-    <div class="toolbar">
-      <span class="small">${months.length} mês(es) cadastrado(s)</span>
-      <button class="primary" id="btn-new-metric-grid">${Icon('plus')} Novo registro</button>
-    </div>
-    <div class="panel"><table class="grid" id="mg-table"></table></div>
-  `;
+    function findRow(metricKey, mes) {
+      return dataByMetric[metricKey].find(r => r.referencia === mes);
+    }
 
-  function draw() {
+    const templateButtonsHtml = templateOpts ? `
+      <button class="icon-btn" id="btn-download-template" title="Baixar modelo de planilha">${Icon('download')}</button>
+      <button class="icon-btn" id="btn-upload-template" title="Importar planilha preenchida">${Icon('upload')}</button>
+    ` : '';
+    container.innerHTML = `
+      <div class="toolbar">
+        <span class="small">${months.length} mês(es) cadastrado(s)</span>
+        <button class="primary" id="btn-new-metric-grid">${Icon('plus')} Novo registro</button>
+        ${templateButtonsHtml}
+      </div>
+      <div class="panel"><table class="grid" id="mg-table"></table></div>
+    `;
+    if (templateOpts) {
+      container.querySelector('#btn-download-template').onclick = () => downloadMetricGridTemplate(operacao, metrics, meta, templateOpts.filenamePrefix);
+      container.querySelector('#btn-upload-template').onclick = async () => {
+        const file = await pickFile('.csv');
+        if (file) await importMetricGridTemplate(operacao, file, metrics, meta, load);
+      };
+    }
+
+    function draw() {
     const table = container.querySelector('#mg-table');
     const groupRow = `<tr class="group-row"><th rowspan="2">Mês</th>${metrics.map(m => `<th class="group-bound" colspan="${filiais.length}">${labelWithUnit(m)}</th>`).join('')}<th rowspan="2"></th></tr>`;
     const filialRow = `<tr>${metrics.map(() => filiais.map((f, i) => `<th class="${i === 0 ? 'group-bound' : ''}">${escapeHtml(f)}</th>`).join('')).join('')}</tr>`;
@@ -342,9 +350,12 @@ async function renderMetricGridFormDetail(container, operacao, metrics, meta) {
     }, { size: 'form' });
   }
 
-  container.querySelector('#btn-new-metric-grid').onclick = () => openMetricGridForm(null, true);
+    container.querySelector('#btn-new-metric-grid').onclick = () => openMetricGridForm(null, true);
 
-  draw();
+    draw();
+  }
+
+  await load();
 }
 
 // ---------------------------------------------------------------
@@ -366,18 +377,26 @@ const DIMENS_FIELDS = [
 ];
 
 async function renderDimensDetail(container, operacao) {
-  let rows = (await Api.get('/api/flat/tb_premissas_dimens')).filter(r => r.nom_operacao === operacao);
-  rows.sort((a, b) => a.referencia < b.referencia ? -1 : 1);
+  async function load() {
+    let rows = (await Api.get('/api/flat/tb_premissas_dimens')).filter(r => r.nom_operacao === operacao);
+    rows.sort((a, b) => a.referencia < b.referencia ? -1 : 1);
 
-  container.innerHTML = `
-    <div class="toolbar">
-      <span class="small">${rows.length} mês(es) cadastrado(s)</span>
-      <button class="primary" id="btn-new-dimens">${Icon('plus')} Novo registro</button>
-    </div>
-    <div class="panel"><table class="grid" id="dim-table"></table></div>
-  `;
+    container.innerHTML = `
+      <div class="toolbar">
+        <span class="small">${rows.length} mês(es) cadastrado(s)</span>
+        <button class="primary" id="btn-new-dimens">${Icon('plus')} Novo registro</button>
+        <button class="icon-btn" id="btn-download-dimens" title="Baixar modelo de planilha">${Icon('download')}</button>
+        <button class="icon-btn" id="btn-upload-dimens" title="Importar planilha preenchida">${Icon('upload')}</button>
+      </div>
+      <div class="panel"><table class="grid" id="dim-table"></table></div>
+    `;
+    container.querySelector('#btn-download-dimens').onclick = () => downloadDimensTemplate(operacao);
+    container.querySelector('#btn-upload-dimens').onclick = async () => {
+      const file = await pickFile('.csv');
+      if (file) await importDimensTemplate(operacao, file, load);
+    };
 
-  function draw() {
+    function draw() {
     const table = container.querySelector('#dim-table');
     table.innerHTML = `<thead><tr><th>Mês</th><th>Tipo</th>${DIMENS_FIELDS.map(f => `<th>${labelWithUnit(f)}</th>`).join('')}<th></th></tr></thead>`;
     const tbody = document.createElement('tbody');
@@ -514,13 +533,16 @@ async function renderDimensDetail(container, operacao) {
     }, { size: 'form' });
   }
 
-  container.querySelector('#btn-new-dimens').onclick = () => {
-    const blank = { referencia: '', tipo_dimens: '' };
-    DIMENS_FIELDS.forEach(f => { blank[f.key] = null; });
-    openDimensForm(blank, true);
-  };
+    container.querySelector('#btn-new-dimens').onclick = () => {
+      const blank = { referencia: '', tipo_dimens: '' };
+      DIMENS_FIELDS.forEach(f => { blank[f.key] = null; });
+      openDimensForm(blank, true);
+    };
 
-  draw();
+    draw();
+  }
+
+  await load();
 }
 
 // ---------------------------------------------------------------
@@ -535,15 +557,26 @@ const UNITARIO_FIELDS = [
 ];
 
 async function renderReceitaDetail(container, operacao, meta) {
+  async function load() {
   const unitariosAll = await Api.get('/api/flat/tb_unitarios');
   const filiais = meta.filiais;
 
   container.innerHTML = `
+    <div class="toolbar">
+      <span class="small">Unitário de Faturamento + grade mensal desta operação</span>
+      <button class="icon-btn" id="btn-download-receita" title="Baixar modelo de planilha">${Icon('download')}</button>
+      <button class="icon-btn" id="btn-upload-receita" title="Importar planilha preenchida">${Icon('upload')}</button>
+    </div>
     <div class="section-title">Unitário de Faturamento (por filial)</div>
     <div class="panel" style="margin-bottom:18px"><table class="grid" id="unit-table"></table></div>
     <div class="section-title">Mensal (CPRB, Reajuste, Receita Bodyshop)</div>
     <div id="monthly-host"></div>
   `;
+  container.querySelector('#btn-download-receita').onclick = () => downloadReceitaTemplate(operacao, meta);
+  container.querySelector('#btn-upload-receita').onclick = async () => {
+    const file = await pickFile('.csv');
+    if (file) await importReceitaTemplate(operacao, file, meta, load);
+  };
 
   const unitTable = container.querySelector('#unit-table');
 
@@ -621,6 +654,9 @@ async function renderReceitaDetail(container, operacao, meta) {
   drawUnitTable();
 
   await renderMetricGridFormDetail(container.querySelector('#monthly-host'), operacao, RECEITA_MONTHLY_METRICS, meta);
+  }
+
+  await load();
 }
 
 // ---------------------------------------------------------------
@@ -629,14 +665,27 @@ async function renderReceitaDetail(container, operacao, meta) {
 // ---------------------------------------------------------------
 async function renderDistribuicaoDetail(container, operacao, meta) {
   const filiais = meta.filiais;
-  container.innerHTML = `
-    <div class="section-title">Distribuição de Volume (%)</div>
-    <div id="dist-volume"></div>
-    <div class="section-title">Distribuição de HC (%)</div>
-    <div id="dist-hc"></div>
-  `;
-  await renderDistribGrid(container.querySelector('#dist-volume'), operacao, 'tb_distribuicao_volume', filiais);
-  await renderDistribGrid(container.querySelector('#dist-hc'), operacao, 'tb_distribuicao_hc', filiais);
+  async function load() {
+    container.innerHTML = `
+      <div class="toolbar">
+        <span class="small">Distribuição de Volume e de HC desta operação</span>
+        <button class="icon-btn" id="btn-download-distrib" title="Baixar modelo de planilha">${Icon('download')}</button>
+        <button class="icon-btn" id="btn-upload-distrib" title="Importar planilha preenchida">${Icon('upload')}</button>
+      </div>
+      <div class="section-title">Distribuição de Volume (%)</div>
+      <div id="dist-volume"></div>
+      <div class="section-title">Distribuição de HC (%)</div>
+      <div id="dist-hc"></div>
+    `;
+    container.querySelector('#btn-download-distrib').onclick = () => downloadDistribuicaoTemplate(operacao, meta);
+    container.querySelector('#btn-upload-distrib').onclick = async () => {
+      const file = await pickFile('.csv');
+      if (file) await importDistribuicaoTemplate(operacao, file, meta, load);
+    };
+    await renderDistribGrid(container.querySelector('#dist-volume'), operacao, 'tb_distribuicao_volume', filiais);
+    await renderDistribGrid(container.querySelector('#dist-hc'), operacao, 'tb_distribuicao_hc', filiais);
+  }
+  await load();
 }
 
 function totalOf(row, filiais) {
@@ -801,6 +850,7 @@ async function resolveMesBase(operacao) {
 }
 
 async function renderAjusteDetail(container, operacao) {
+  async function load() {
   let rows = (await Api.get('/api/flat/tb_ajuste_premissas')).filter(r => r.nom_operacao === operacao);
   rows.sort((a, b) => a.referencia < b.referencia ? -1 : 1);
   const mesBase = await resolveMesBase(operacao);
@@ -810,11 +860,18 @@ async function renderAjusteDetail(container, operacao) {
     <div class="toolbar">
       <span class="small">${rows.length} mês(es) cadastrado(s)</span>
       <button class="primary" id="btn-new-ajuste">${Icon('plus')} Novo registro</button>
+      <button class="icon-btn" id="btn-download-ajuste" title="Baixar modelo de planilha">${Icon('download')}</button>
+      <button class="icon-btn" id="btn-upload-ajuste" title="Importar planilha preenchida">${Icon('upload')}</button>
     </div>
     ${mesBase ? `<div class="empty-state" style="text-align:left;margin-bottom:12px">${Icon('circle-alert')} Ajustes só têm efeito nos meses <strong>projetados</strong> (após ${Fmt.mes(mesBase)}). ${Fmt.mes(mesBase)} e meses anteriores são dados reais e ignoram o ajuste.</div>` : ''}
     <div class="panel"><table class="grid" id="ajuste-table"></table></div>
   `;
   applyIcons(container);
+  container.querySelector('#btn-download-ajuste').onclick = () => downloadAjusteTemplate(operacao);
+  container.querySelector('#btn-upload-ajuste').onclick = async () => {
+    const file = await pickFile('.csv');
+    if (file) await importAjusteTemplate(operacao, file, load);
+  };
 
   function draw() {
     const table = container.querySelector('#ajuste-table');
@@ -941,16 +998,20 @@ async function renderAjusteDetail(container, operacao) {
   };
 
   draw();
+  }
+
+  await load();
 }
 
 // ---------------------------------------------------------------
-// Modelo de planilha (download/upload) por operação — permite cadastrar o
-// ano inteiro de uma vez, em vez de mês a mês pelo formulário. O botão fica
-// dentro de cada op-list-item (ver renderOperationList acima).
+// Modelo de planilha (download/upload) por operação — permite cadastrar
+// vários meses de uma vez, em vez de mês a mês pelo formulário. Os botões
+// ficam dentro do frame de cada operação (toolbar dos render*Detail acima),
+// não na lista de operações.
 //
-// Baixar modelo: gera um .csv (abre direto no Excel) com os meses já
-// cadastrados da operação preenchidos + linhas em branco para os 12 meses
-// de um ano escolhido, prontas para preencher.
+// Baixar modelo: gera um .csv (abre direto no Excel) com o layout esperado
+// (cabeçalho) e, quando já há dados cadastrados para a operação, com todos
+// eles — nunca um recorte por período.
 // Importar planilha: lê o .csv escolhido, valida linha a linha (formato de
 // mês, tipos numéricos, colunas esperadas) e só grava alguma coisa se NÃO
 // houver nenhum erro — em caso de erro, lista tudo ao usuário e não
@@ -958,31 +1019,6 @@ async function renderAjusteDetail(container, operacao) {
 // ---------------------------------------------------------------
 function sanitizeFileName(s) {
   return s.replace(/[\\/:*?"<>|]+/g, '_');
-}
-
-// Pequeno modal para perguntar o ano-alvo do modelo (meses em branco a
-// incluir, além dos já cadastrados). Resolve null se o usuário cancelar.
-function promptAno(defaultAno) {
-  return new Promise((resolve) => {
-    let resolved = false;
-    const done = (val) => { if (!resolved) { resolved = true; resolve(val); } };
-    openModal('Baixar modelo de planilha', (body, close) => {
-      body.innerHTML = `
-        <p class="small" style="margin-bottom:16px">Além dos meses já cadastrados desta operação, o modelo trará linhas em branco para os 12 meses do ano escolhido, prontas para preencher e importar de volta.</p>
-        <label class="field-label" style="max-width:160px">Ano <input class="field-input" type="number" id="tpl-ano" value="${defaultAno}" step="1"></label>
-        <div class="modal-actions" style="margin-top:16px">
-          <button id="tpl-cancel">Cancelar</button>
-          <button class="primary" id="tpl-ok">${Icon('download')} Baixar modelo</button>
-        </div>
-      `;
-      body.querySelector('#tpl-cancel').onclick = () => { done(null); close(); };
-      body.querySelector('#tpl-ok').onclick = () => {
-        const ano = parseInt(body.querySelector('#tpl-ano').value, 10);
-        done(Number.isFinite(ano) ? ano : defaultAno);
-        close();
-      };
-    }, { size: 'form' });
-  });
 }
 
 // Abre o seletor de arquivo do sistema operacional e resolve com o File
@@ -1027,11 +1063,6 @@ function parseMonthCell(text) {
 }
 function monthCellText(referencia) {
   return referencia ? referencia.slice(0, 7) : '';
-}
-function monthsOfYear(ano) {
-  const out = [];
-  for (let m = 1; m <= 12; m++) out.push(`${ano}-${String(m).padStart(2, '0')}-01`);
-  return out;
 }
 
 // Mesma convenção de Fmt.fromEdit (percentual digitado como "5,5" -> 0.055),
@@ -1137,10 +1168,7 @@ async function loadMetricGridData(metrics, operacao) {
 }
 
 async function downloadMetricGridTemplate(operacao, metrics, meta, filenamePrefix) {
-  const ano = await promptAno(new Date().getFullYear() + 1);
-  if (ano == null) return;
   const { dataByMetric, monthsSet } = await loadMetricGridData(metrics, operacao);
-  monthsOfYear(ano).forEach(m => monthsSet.add(m));
   const months = [...monthsSet].sort();
   const csvRows = buildMetricGridTemplateRows(metrics, meta.filiais, dataByMetric, months);
   ExportUtil.downloadCsv(`modelo_${filenamePrefix}_${sanitizeFileName(operacao)}.csv`, csvRows);
@@ -1240,21 +1268,18 @@ async function importSingleFilialGrid(table, operacao, byMonth) {
 }
 
 // ---- Cadastro Dimensionamento (flat, várias linhas por mês via tipo_dimens) ----
-function buildDimensTemplateRows(rows, ano) {
+// Sem filtro de ano: exporta o layout esperado (cabeçalho) e, se já houver
+// dados cadastrados, todos eles — nunca um recorte.
+function buildDimensTemplateRows(rows) {
   const header = ['Mês (AAAA-MM)', 'Tipo (TIPO_DIMENS)', ...DIMENS_FIELDS.map(labelWithUnit)];
   const sorted = rows.slice().sort((a, b) => (a.referencia < b.referencia ? -1 : a.referencia > b.referencia ? 1 : (a.tipo_dimens < b.tipo_dimens ? -1 : 1)));
   const dataRows = sorted.map(r => [monthCellText(r.referencia), r.tipo_dimens, ...DIMENS_FIELDS.map(f => Fmt.toEdit(r[f.key], f.format))]);
-  const presentMonths = new Set(rows.map(r => r.referencia));
-  const ultimoTipo = sorted.length ? sorted[sorted.length - 1].tipo_dimens : '';
-  const blanks = monthsOfYear(ano).filter(m => !presentMonths.has(m)).map(m => [monthCellText(m), ultimoTipo, ...DIMENS_FIELDS.map(() => '')]);
-  return [header, ...dataRows, ...blanks];
+  return [header, ...dataRows];
 }
 
 async function downloadDimensTemplate(operacao) {
-  const ano = await promptAno(new Date().getFullYear() + 1);
-  if (ano == null) return;
   const rows = (await Api.get('/api/flat/tb_premissas_dimens')).filter(r => r.nom_operacao === operacao);
-  ExportUtil.downloadCsv(`modelo_dimensionamento_${sanitizeFileName(operacao)}.csv`, buildDimensTemplateRows(rows, ano));
+  ExportUtil.downloadCsv(`modelo_dimensionamento_${sanitizeFileName(operacao)}.csv`, buildDimensTemplateRows(rows));
   toast('Modelo baixado.');
 }
 
@@ -1310,8 +1335,6 @@ async function importDimensTemplate(operacao, file, reload) {
 
 // ---- Cadastro Premissas Receita (Unitários por filial + grade mensal) ----
 async function downloadReceitaTemplate(operacao, meta) {
-  const ano = await promptAno(new Date().getFullYear() + 1);
-  if (ano == null) return;
   const filiais = meta.filiais;
   const unitariosAll = await Api.get('/api/flat/tb_unitarios');
   const unitRows = filiais.map(f => {
@@ -1319,7 +1342,6 @@ async function downloadReceitaTemplate(operacao, meta) {
     return [f, ...UNITARIO_FIELDS.map(uf => Fmt.toEdit(rec[uf.key], uf.format)), rec.tipo_faturamento || ''];
   });
   const { dataByMetric, monthsSet } = await loadMetricGridData(RECEITA_MONTHLY_METRICS, operacao);
-  monthsOfYear(ano).forEach(m => monthsSet.add(m));
   const months = [...monthsSet].sort();
 
   const csvRows = [
@@ -1398,8 +1420,6 @@ async function importReceitaTemplate(operacao, file, meta, reload) {
 
 // ---- Cadastro Distribuição (Volume % + HC %, por filial e por mês) ----
 async function downloadDistribuicaoTemplate(operacao, meta) {
-  const ano = await promptAno(new Date().getFullYear() + 1);
-  if (ano == null) return;
   const filiais = meta.filiais;
   const [vol, hc] = await Promise.all([
     Api.get('/api/wide/tb_distribuicao_volume'),
@@ -1408,7 +1428,6 @@ async function downloadDistribuicaoTemplate(operacao, meta) {
   const volRows = vol.rows.filter(r => r.nom_operacao === operacao);
   const hcRows = hc.rows.filter(r => r.nom_operacao === operacao);
   const monthsSet = new Set([...volRows, ...hcRows].map(r => r.referencia));
-  monthsOfYear(ano).forEach(m => monthsSet.add(m));
   const months = [...monthsSet].sort();
 
   const csvRows = [
@@ -1449,20 +1468,16 @@ async function importDistribuicaoTemplate(operacao, file, meta, reload) {
 }
 
 // ---- Cadastro Ajuste de Premissas (flat, uma linha por mês) ----
-function buildAjusteTemplateRows(rows, ano) {
+function buildAjusteTemplateRows(rows) {
   const header = ['Mês (AAAA-MM)', ...AJUSTE_FIELDS.map(labelWithUnit)];
   const dataRows = rows.slice().sort((a, b) => (a.referencia < b.referencia ? -1 : 1))
     .map(r => [monthCellText(r.referencia), ...AJUSTE_FIELDS.map(f => Fmt.toEdit(r[f.key], f.format))]);
-  const present = new Set(rows.map(r => r.referencia));
-  const blanks = monthsOfYear(ano).filter(m => !present.has(m)).map(m => [monthCellText(m), ...AJUSTE_FIELDS.map(() => '')]);
-  return [header, ...dataRows, ...blanks];
+  return [header, ...dataRows];
 }
 
 async function downloadAjusteTemplate(operacao) {
-  const ano = await promptAno(new Date().getFullYear() + 1);
-  if (ano == null) return;
   const rows = (await Api.get('/api/flat/tb_ajuste_premissas')).filter(r => r.nom_operacao === operacao);
-  ExportUtil.downloadCsv(`modelo_ajuste_premissas_${sanitizeFileName(operacao)}.csv`, buildAjusteTemplateRows(rows, ano));
+  ExportUtil.downloadCsv(`modelo_ajuste_premissas_${sanitizeFileName(operacao)}.csv`, buildAjusteTemplateRows(rows));
   toast('Modelo baixado.');
 }
 
@@ -1516,98 +1531,58 @@ async function importAjusteTemplate(operacao, file, reload) {
 // Páginas de topo (lista + abertura do modal)
 // ---------------------------------------------------------------
 async function renderCadastroDimensionamento(container, meta) {
-  async function load() {
-    const rows = await Api.get('/api/flat/tb_premissas_dimens');
-    const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
-    renderOperationList(container, meta, (operacao) => {
-      openModal(`Dimensionamento · ${operacao}`, (body) => renderDimensDetail(body, operacao));
-    }, mesesMap, {
-      onDownload: (operacao) => downloadDimensTemplate(operacao),
-      onUpload: async (operacao) => {
-        const file = await pickFile('.csv');
-        if (file) await importDimensTemplate(operacao, file, load);
-      },
-    });
-  }
-  await load();
+  const rows = await Api.get('/api/flat/tb_premissas_dimens');
+  const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
+  renderOperationList(container, meta, (operacao) => {
+    openModal(`Dimensionamento · ${operacao}`, (body) => renderDimensDetail(body, operacao));
+  }, mesesMap);
 }
 async function renderCadastroOverstaff(container, meta) {
-  async function load() {
-    const mesesMap = await mesesMapFromMetricTables(OVERSTAFF_METRICS);
-    renderOperationList(container, meta, (operacao) => {
-      openModal(`Premissas Overstaff · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, OVERSTAFF_METRICS, meta));
-    }, mesesMap, {
-      onDownload: (operacao) => downloadMetricGridTemplate(operacao, OVERSTAFF_METRICS, meta, 'overstaff'),
-      onUpload: async (operacao) => {
-        const file = await pickFile('.csv');
-        if (file) await importMetricGridTemplate(operacao, file, OVERSTAFF_METRICS, meta, load);
-      },
-    });
+  const mesesMap = await mesesMapFromMetricTables(OVERSTAFF_METRICS);
+  renderOperationList(container, meta, (operacao) => {
+    openModal(`Premissas Overstaff · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, OVERSTAFF_METRICS, meta, { filenamePrefix: 'overstaff' }));
+  }, mesesMap);
+}
+// Além dos meses da grade mensal (CPRB/Reajuste/Bodyshop), marca com
+// `onlyUnitarios` as operações que já têm Unitário de Faturamento
+// preenchido por filial mas ainda nenhum mês na grade — evita mostrar
+// "Nenhum mês cadastrado" quando na verdade já existe alguma premissa.
+async function receitaMesesMap() {
+  const mesesMap = await mesesMapFromMetricTables(RECEITA_MONTHLY_METRICS);
+  const unitariosAll = await Api.get('/api/flat/tb_unitarios');
+  const temUnitario = (u) => UNITARIO_FIELDS.some(f => u[f.key] != null) || !!u.tipo_faturamento;
+  for (const u of unitariosAll) {
+    if (!temUnitario(u)) continue;
+    if (!mesesMap.has(u.operacao)) mesesMap.set(u.operacao, { onlyUnitarios: true });
   }
-  await load();
+  return mesesMap;
 }
 async function renderCadastroReceita(container, meta) {
-  async function load() {
-    const mesesMap = await mesesMapFromMetricTables(RECEITA_MONTHLY_METRICS);
-    renderOperationList(container, meta, (operacao) => {
-      openModal(`Premissas Receita · ${operacao}`, (body) => renderReceitaDetail(body, operacao, meta));
-    }, mesesMap, {
-      onDownload: (operacao) => downloadReceitaTemplate(operacao, meta),
-      onUpload: async (operacao) => {
-        const file = await pickFile('.csv');
-        if (file) await importReceitaTemplate(operacao, file, meta, load);
-      },
-    });
-  }
-  await load();
+  const mesesMap = await receitaMesesMap();
+  renderOperationList(container, meta, (operacao) => {
+    openModal(`Premissas Receita · ${operacao}`, (body) => renderReceitaDetail(body, operacao, meta));
+  }, mesesMap);
 }
 async function renderCadastroAdicionais(container, meta) {
-  async function load() {
-    const mesesMap = await mesesMapFromMetricTables(ADICIONAIS_METRICS);
-    renderOperationList(container, meta, (operacao) => {
-      openModal(`Premissas Adicionais · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, ADICIONAIS_METRICS, meta));
-    }, mesesMap, {
-      onDownload: (operacao) => downloadMetricGridTemplate(operacao, ADICIONAIS_METRICS, meta, 'adicionais'),
-      onUpload: async (operacao) => {
-        const file = await pickFile('.csv');
-        if (file) await importMetricGridTemplate(operacao, file, ADICIONAIS_METRICS, meta, load);
-      },
-    });
-  }
-  await load();
+  const mesesMap = await mesesMapFromMetricTables(ADICIONAIS_METRICS);
+  renderOperationList(container, meta, (operacao) => {
+    openModal(`Premissas Adicionais · ${operacao}`, (body) => renderMetricGridFormDetail(body, operacao, ADICIONAIS_METRICS, meta, { filenamePrefix: 'adicionais' }));
+  }, mesesMap);
 }
 async function renderCadastroDistribuicao(container, meta) {
-  async function load() {
-    const [vol, hc] = await Promise.all([
-      Api.get('/api/wide/tb_distribuicao_volume'),
-      Api.get('/api/wide/tb_distribuicao_hc'),
-    ]);
-    const mesesMap = buildMesesMap([...vol.rows, ...hc.rows], 'nom_operacao', 'referencia');
-    renderOperationList(container, meta, (operacao) => {
-      openModal(`Distribuição (Volume & HC) · ${operacao}`, (body) => renderDistribuicaoDetail(body, operacao, meta));
-    }, mesesMap, {
-      onDownload: (operacao) => downloadDistribuicaoTemplate(operacao, meta),
-      onUpload: async (operacao) => {
-        const file = await pickFile('.csv');
-        if (file) await importDistribuicaoTemplate(operacao, file, meta, load);
-      },
-    });
-  }
-  await load();
+  const [vol, hc] = await Promise.all([
+    Api.get('/api/wide/tb_distribuicao_volume'),
+    Api.get('/api/wide/tb_distribuicao_hc'),
+  ]);
+  const mesesMap = buildMesesMap([...vol.rows, ...hc.rows], 'nom_operacao', 'referencia');
+  renderOperationList(container, meta, (operacao) => {
+    openModal(`Distribuição (Volume & HC) · ${operacao}`, (body) => renderDistribuicaoDetail(body, operacao, meta));
+  }, mesesMap);
 }
 async function renderCadastroAjustePremissas(container, meta) {
-  async function load() {
-    const rows = await Api.get('/api/flat/tb_ajuste_premissas');
-    const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
-    renderOperationList(container, meta, (operacao) => {
-      openModal(`Ajuste Premissas · ${operacao}`, (body) => renderAjusteDetail(body, operacao));
-    }, mesesMap, {
-      onDownload: (operacao) => downloadAjusteTemplate(operacao),
-      onUpload: async (operacao) => {
-        const file = await pickFile('.csv');
-        if (file) await importAjusteTemplate(operacao, file, load);
-      },
-    });
-  }
-  await load();
+  const rows = await Api.get('/api/flat/tb_ajuste_premissas');
+  const mesesMap = buildMesesMap(rows, 'nom_operacao', 'referencia');
+  renderOperationList(container, meta, (operacao) => {
+    openModal(`Ajuste Premissas · ${operacao}`, (body) => renderAjusteDetail(body, operacao));
+  }, mesesMap);
 }
