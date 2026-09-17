@@ -8,10 +8,18 @@ const GROUP_OPTIONS_HTML = Object.entries(GROUP_LABELS)
   .map(([v, l]) => `<option value="${v}">${escapeHtml(l)}</option>`).join('');
 const DRILL_OPTIONS_HTML = `<option value="none">Nenhum</option>` + GROUP_OPTIONS_HTML;
 
-function yearOptions(selected) {
-  const cur = new Date().getFullYear();
-  const sel = selected ?? cur;
-  return [cur - 1, cur, cur + 1].map(a => `<option ${a === sel ? 'selected' : ''}>${a}</option>`).join('');
+// Intervalo dinâmico (não depende da data do sistema): do ano mínimo
+// cadastrado em Cadastro Dimensionamento até um ano além do máximo cadastrado
+// (o "próximo ano" a orçar) — vem pronto em meta.anoMinDimens/anoMaxDimens
+// (Store.getMeta). Sem `selected` válido no intervalo, seleciona o "próximo
+// ano" (o mais recente das opções), o mais relevante para orçamento.
+function yearOptions(meta, selected) {
+  const min = meta?.anoMinDimens ?? new Date().getFullYear();
+  const max = (meta?.anoMaxDimens ?? new Date().getFullYear()) + 1;
+  const sel = (selected != null && selected >= min && selected <= max) ? selected : max;
+  const opts = [];
+  for (let a = min; a <= max; a++) opts.push(a);
+  return opts.map(a => `<option ${a === sel ? 'selected' : ''}>${a}</option>`).join('');
 }
 
 function groupRowCells(g) {
@@ -79,8 +87,9 @@ function repopulateFilterSelect(selectEl, options, allLabel) {
 }
 
 // ---------------------------------------------------------------
-// Gráfico de barras mensal (sem dependências externas) — usado pelas visões
-// Headcount / Volume (Chamadas) / TMA / Receita Bruta x mês do Painel Gerencial.
+// Gráfico de linhas mensal (sem dependências externas) — usado pelas visões
+// Headcount / Volume (Chamadas) / TMA / Receita Bruta / Absenteísmo /
+// Turnover / Férias / Folga x mês do Painel Gerencial.
 // ---------------------------------------------------------------
 function niceCeil(n) {
   if (!(n > 0)) return 1;
@@ -91,37 +100,44 @@ function niceCeil(n) {
   return niceF * base;
 }
 
-function roundedTopRectPath(x, y, w, h, r) {
-  if (h <= 0) return '';
-  const rr = Math.min(r, w / 2, h);
-  return `M${x},${y + h} L${x},${y + rr} Q${x},${y} ${x + rr},${y} L${x + w - rr},${y} Q${x + w},${y} ${x + w},${y + rr} L${x + w},${y + h} Z`;
+// Rótulo de eixo/dado "dinâmico": abrevia valores grandes de moeda/número
+// (mil/mi) em vez de imprimir o número cheio, para caber no eixo e nos
+// rótulos de dado sem depender do tamanho absoluto dos valores do período.
+// Percentual e decimal já são compactos por natureza — mantém Fmt.display.
+function formatAxisValue(v, format) {
+  if (format === 'percent' || format === 'decimal1') return Fmt.display(v, format);
+  const prefix = format === 'currency' ? 'R$ ' : '';
+  const abs = Math.abs(v);
+  if (abs >= 1e6) return prefix + (v / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mi';
+  if (abs >= 1e3) return prefix + (v / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil';
+  return prefix + v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 }
 
-function renderBarChart(container, { title, color, data, valueLabel }) {
-  const W = 640, H = 260;
-  const padL = 60, padR = 16, padT = 16, padB = 30;
+function renderLineChart(container, { title, color, data, valueLabel, format }) {
+  const W = 640, H = 280;
+  const padL = 60, padR = 16, padT = 28, padB = 30;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const maxVal = niceCeil(Math.max(1, ...data.map(d => d.valor)));
   const n = data.length || 1;
   const slot = plotW / n;
-  const barW = Math.min(24, slot * 0.55);
 
   const yOf = (v) => padT + plotH * (1 - v / maxVal);
+  const xOf = (i) => padL + i * slot + slot / 2;
   const ticks = [0, maxVal / 2, maxVal];
 
   const gridlines = ticks.map(t => `<line x1="${padL}" y1="${yOf(t).toFixed(1)}" x2="${W - padR}" y2="${yOf(t).toFixed(1)}" class="chart-gridline" />`).join('');
-  const yLabels = ticks.map(t => `<text x="${padL - 8}" y="${(yOf(t) + 3).toFixed(1)}" class="chart-axis-label" text-anchor="end">${valueLabel(t)}</text>`).join('');
+  const yLabels = ticks.map(t => `<text x="${padL - 8}" y="${(yOf(t) + 3).toFixed(1)}" class="chart-axis-label" text-anchor="end">${formatAxisValue(t, format)}</text>`).join('');
 
-  const bars = data.map((d, i) => {
-    const x = padL + i * slot + (slot - barW) / 2;
-    const y = yOf(d.valor);
-    const h = padT + plotH - y;
-    return `<path d="${roundedTopRectPath(x, y, barW, h, 4)}" fill="${color}" data-mes="${d.mes}" data-valor="${d.valor}"></path>`;
-  }).join('');
+  const points = data.map((d, i) => ({ x: xOf(i), y: yOf(d.valor), d }));
+  const linePoints = points.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+  const dots = points.map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${color}" data-mes="${p.d.mes}" data-valor="${p.d.valor}" class="chart-dot"></circle>`).join('');
+
+  const dataLabels = points.map(p => `<text x="${p.x.toFixed(1)}" y="${Math.max(11, p.y - 10).toFixed(1)}" text-anchor="middle" class="chart-data-label">${formatAxisValue(p.d.valor, format)}</text>`).join('');
 
   const xLabels = data.map((d, i) => {
-    const x = padL + i * slot + slot / 2;
+    const x = xOf(i);
     return `<text x="${x.toFixed(1)}" y="${H - padB + 18}" class="chart-axis-label" text-anchor="middle">${Fmt.mes(d.mes)}</text>`;
   }).join('');
 
@@ -132,7 +148,9 @@ function renderBarChart(container, { title, color, data, valueLabel }) {
         ${gridlines}
         <line x1="${padL}" y1="${(padT + plotH).toFixed(1)}" x2="${W - padR}" y2="${(padT + plotH).toFixed(1)}" class="chart-baseline" />
         ${yLabels}
-        ${bars}
+        <polyline points="${linePoints}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" class="chart-line"></polyline>
+        ${dots}
+        ${dataLabels}
         ${xLabels}
       </svg>
       <div class="chart-tooltip" style="display:none"></div>
@@ -141,7 +159,7 @@ function renderBarChart(container, { title, color, data, valueLabel }) {
 
   const tooltip = container.querySelector('.chart-tooltip');
   const wrap = container.querySelector('.chart-wrap');
-  container.querySelectorAll('path[data-mes]').forEach(el => {
+  container.querySelectorAll('circle[data-mes]').forEach(el => {
     el.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
     el.addEventListener('mousemove', (e) => {
       const rect = wrap.getBoundingClientRect();
@@ -153,8 +171,16 @@ function renderBarChart(container, { title, color, data, valueLabel }) {
   });
 }
 
+// Últimos filtros aplicados no Painel Gerencial — em memória, no nível do
+// módulo (não dentro de renderDashboardPage), para sobreviver a navegar para
+// outra página e voltar. Atualizado a cada load() bem-sucedido.
+const dashboardFilterState = {
+  ano: null, groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '', operacao: '',
+};
+
 async function renderDashboardPage(container, meta) {
   const expanded = new Set();
+  const fs = dashboardFilterState;
 
   container.innerHTML = `
     <div class="toolbar">
@@ -162,7 +188,7 @@ async function renderDashboardPage(container, meta) {
       <label>Drill <select id="d-drill">${DRILL_OPTIONS_HTML}</select></label>
     </div>
     <div class="toolbar">
-      <label>Ano <select id="d-ano">${yearOptions()}</select></label>
+      <label>Ano <select id="d-ano">${yearOptions(meta, fs.ano)}</select></label>
       <label>Responsável PCP <select id="d-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="d-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Operação <select id="d-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
@@ -193,6 +219,17 @@ async function renderDashboardPage(container, meta) {
   `;
   applyIcons(container);
 
+  // Restaura os últimos filtros aplicados (Agrupar por/Drill/Responsável/
+  // Gerente/Operação) antes do primeiro load() — o Ano já vem selecionado
+  // via yearOptions(meta, fs.ano) acima. Se a operação/responsável/gerente
+  // persistido não existir mais entre as opções atuais, o <select> ignora o
+  // value inválido e volta para "Todos" sozinho.
+  document.getElementById('d-group').value = fs.groupBy;
+  document.getElementById('d-drill').value = fs.drillBy;
+  document.getElementById('d-resp').value = fs.responsavel;
+  document.getElementById('d-gerente').value = fs.gerente;
+  document.getElementById('d-operacao').value = fs.operacao;
+
   container.querySelector('#btn-export-analitico').onclick = () => { location.hash = 'dashboard:analitico'; };
 
   let data = null;
@@ -208,6 +245,7 @@ async function renderDashboardPage(container, meta) {
     const responsavel = document.getElementById('d-resp').value;
     const gerente = document.getElementById('d-gerente').value;
     const operacao = document.getElementById('d-operacao').value;
+    Object.assign(fs, { ano: Number(ano), groupBy, drillBy, responsavel, gerente, operacao });
     data = await Api.get(`/api/dashboard?ano=${ano}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}`);
     expanded.clear();
     if (data.drillBy !== 'none') data.grupos.forEach(g => expanded.add(g.chave)); // drill inicia sempre aberto
@@ -251,43 +289,43 @@ async function renderDashboardPage(container, meta) {
 
   function drawCharts() {
     const porMes = data.porMes || [];
-    renderBarChart(document.getElementById('chart-hc'), {
-      title: 'Headcount x Mês', color: 'var(--chart-1)',
+    renderLineChart(document.getElementById('chart-hc'), {
+      title: 'Headcount x Mês', color: 'var(--chart-1)', format: 'number',
       data: porMes.map(m => ({ mes: m.mes, valor: m.hc })),
       valueLabel: v => Fmt.display(v, 'number'),
     });
-    renderBarChart(document.getElementById('chart-volume'), {
-      title: 'Volume (Chamadas) x Mês', color: 'var(--chart-2)',
+    renderLineChart(document.getElementById('chart-volume'), {
+      title: 'Volume (Chamadas) x Mês', color: 'var(--chart-2)', format: 'number',
       data: porMes.map(m => ({ mes: m.mes, valor: m.volume })),
       valueLabel: v => Fmt.display(v, 'number'),
     });
-    renderBarChart(document.getElementById('chart-tma'), {
-      title: 'TMA Médio (seg) x Mês', color: 'var(--chart-3)',
+    renderLineChart(document.getElementById('chart-tma'), {
+      title: 'TMA Médio (seg) x Mês', color: 'var(--chart-3)', format: 'decimal1',
       data: porMes.map(m => ({ mes: m.mes, valor: m.tma })),
       valueLabel: v => Fmt.display(v, 'decimal1'),
     });
-    renderBarChart(document.getElementById('chart-receita'), {
-      title: 'Receita Bruta x Mês', color: 'var(--chart-4)',
+    renderLineChart(document.getElementById('chart-receita'), {
+      title: 'Receita Bruta x Mês', color: 'var(--chart-4)', format: 'currency',
       data: porMes.map(m => ({ mes: m.mes, valor: m.receita })),
       valueLabel: v => Fmt.display(v, 'currency'),
     });
-    renderBarChart(document.getElementById('chart-absenteismo'), {
-      title: 'Absenteísmo x Mês', color: 'var(--chart-5)',
+    renderLineChart(document.getElementById('chart-absenteismo'), {
+      title: 'Absenteísmo x Mês', color: 'var(--chart-5)', format: 'percent',
       data: porMes.map(m => ({ mes: m.mes, valor: m.absenteismo })),
       valueLabel: v => Fmt.display(v, 'percent'),
     });
-    renderBarChart(document.getElementById('chart-turnover'), {
-      title: 'Turnover x Mês', color: 'var(--chart-6)',
+    renderLineChart(document.getElementById('chart-turnover'), {
+      title: 'Turnover x Mês', color: 'var(--chart-6)', format: 'percent',
       data: porMes.map(m => ({ mes: m.mes, valor: m.turnover })),
       valueLabel: v => Fmt.display(v, 'percent'),
     });
-    renderBarChart(document.getElementById('chart-ferias'), {
-      title: 'Férias x Mês', color: 'var(--chart-7)',
+    renderLineChart(document.getElementById('chart-ferias'), {
+      title: 'Férias x Mês', color: 'var(--chart-7)', format: 'percent',
       data: porMes.map(m => ({ mes: m.mes, valor: m.ferias })),
       valueLabel: v => Fmt.display(v, 'percent'),
     });
-    renderBarChart(document.getElementById('chart-folga'), {
-      title: 'Folga Adicional x Mês', color: 'var(--chart-8)',
+    renderLineChart(document.getElementById('chart-folga'), {
+      title: 'Folga Adicional x Mês', color: 'var(--chart-8)', format: 'percent',
       data: porMes.map(m => ({ mes: m.mes, valor: m.folga_extra })),
       valueLabel: v => Fmt.display(v, 'percent'),
     });
@@ -395,7 +433,7 @@ function analiticoRowToDisplay(r) {
 async function renderAnaliticoPage(container, meta) {
   container.innerHTML = `
     <div class="toolbar">
-      <label>Ano <select id="a-ano">${yearOptions()}</select></label>
+      <label>Ano <select id="a-ano">${yearOptions(meta)}</select></label>
       <label>Responsável PCP <select id="a-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="a-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Operação <select id="a-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
@@ -474,7 +512,7 @@ async function renderCalendarioPage(container, meta) {
 
   container.innerHTML = `
     <div class="toolbar">
-      <label>Ano <select id="cal-ano">${yearOptions()}</select></label>
+      <label>Ano <select id="cal-ano">${yearOptions(meta)}</select></label>
       <label>Peso Feriado Nacional <input class="field-input" type="text" id="cal-peso" style="max-width:100px" value="${Fmt.toEdit(pesoFeriadoNacional,'percent')}"></label>
       <span class="small">usado no cálculo de Faturamento 6x1: dias úteis + ((sábado+domingo+feriados) × peso)</span>
     </div>

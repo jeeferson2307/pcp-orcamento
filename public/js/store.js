@@ -22,8 +22,18 @@ const Store = {
     const tiposDimens = DB.prepare('SELECT DISTINCT tipo_dimens FROM tb_premissas_dimens ORDER BY tipo_dimens').all().map(r => r.tipo_dimens);
     const responsaveis = DB.prepare('SELECT DISTINCT responsavel_pcp FROM cadastro_operacoes WHERE responsavel_pcp IS NOT NULL ORDER BY responsavel_pcp').all().map(r => r.responsavel_pcp);
     const gerentes = DB.prepare('SELECT DISTINCT gerente FROM cadastro_operacoes WHERE gerente IS NOT NULL ORDER BY gerente').all().map(r => r.gerente);
+    // Intervalo de anos para os filtros "Ano" (Painel Gerencial, Analítico,
+    // Calendário): do ano mínimo cadastrado em Cadastro Dimensionamento até
+    // um ano além do máximo cadastrado (o "próximo ano" a orçar). Dinâmico —
+    // não depende da data do sistema, só do que já foi cadastrado.
+    const anosDimens = DB.prepare('SELECT referencia FROM tb_premissas_dimens WHERE referencia IS NOT NULL').all()
+      .map(r => Number(r.referencia.slice(0, 4))).filter(a => !Number.isNaN(a));
+    const anoAtual = new Date().getFullYear();
+    const anoMinDimens = anosDimens.length ? Math.min(...anosDimens) : anoAtual;
+    const anoMaxDimens = anosDimens.length ? Math.max(...anosDimens) : anoAtual;
     return {
       filiais, operacoes, tiposDimens, responsaveis, gerentes,
+      anoMinDimens, anoMaxDimens,
       wideTables: WIDE_TABLES,
       flatTables: Object.fromEntries(Object.entries(FLAT_TABLES).map(([k, v]) => [k, { ...v, columns: columnsOf(k) }])),
     };
@@ -177,7 +187,11 @@ const Store = {
   },
 
   getResultado({ ano, responsavel, gerente, operacao, apenasComCusto }) {
+    // buildFinal devolve real (todos os anos com dado histórico) + projetado
+    // (até o ano pedido) — precisa filtrar aqui pelo ano pedido, senão meses
+    // de anos anteriores (reais) vazam para a visão do Analítico.
     let rows = buildFinal(ano, { responsavelPcp: responsavel || null, apenasComCusto: apenasComCusto !== false });
+    rows = rows.filter(r => r.referencia && r.referencia.startsWith(String(ano)));
     if (gerente) rows = rows.filter(r => r.gerente === gerente);
     if (operacao) rows = rows.filter(r => r.operacao === operacao);
     return { ano, count: rows.length, rows };
@@ -194,7 +208,10 @@ const Store = {
     // Base sem os 3 filtros "relativos" (responsável/gerente/operação) — usada
     // para calcular, para cada combo, quais valores dos OUTROS filtros ainda
     // fazem sentido (slicers cruzados: escolher um nível restringe os demais).
-    const allRows = buildFinal(ano, { apenasComCusto: true });
+    // Já filtrada pelo ano pedido: buildFinal devolve real (todos os anos com
+    // dado histórico) + projetado (até o ano pedido), então sem esse filtro
+    // os KPIs/tabela somariam meses de anos anteriores junto com o ano atual.
+    const allRows = buildFinal(ano, { apenasComCusto: true }).filter(r => r.referencia && r.referencia.startsWith(String(ano)));
     const uniqSorted = (list, field) => [...new Set(list.map(r => r[field]).filter(Boolean))].sort();
     const filterOptions = {
       responsaveis: uniqSorted(allRows.filter(r => (!gerente || r.gerente === gerente) && (!operacao || r.operacao === operacao)), 'responsavel_pcp'),
