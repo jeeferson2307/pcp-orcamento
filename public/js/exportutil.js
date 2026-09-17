@@ -26,6 +26,40 @@ const ExportUtil = (() => {
     triggerDownload(toCsv(rows), filename);
   }
 
+  // Inverso de toCsv: texto CSV (';' como separador, aspas para escape) -> array
+  // de arrays de strings. Usado pela importação de modelos de cadastro
+  // (cadastros.js). Só aceita ';' como separador (não ',') porque números
+  // digitados com vírgula decimal (padrão pt-BR, ex.: "5,5") não podem virar
+  // um separador de coluna.
+  function parseCsv(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const rows = [];
+    let row = [], cell = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { cell += '"'; i++; }
+          else inQuotes = false;
+        } else cell += c;
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ';') {
+        row.push(cell); cell = '';
+      } else if (c === '\r') {
+        // ignorado — a quebra de linha real é tratada em '\n'
+      } else if (c === '\n') {
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else {
+        cell += c;
+      }
+    }
+    row.push(cell);
+    rows.push(row);
+    while (rows.length && rows[rows.length - 1].every(c => c.trim() === '')) rows.pop();
+    return rows;
+  }
+
   // ---- ZIP mínimo (método STORE, sem compressão) ---------------------------
   let CRC_TABLE = null;
   function crc32(bytes) {
@@ -155,5 +189,5 @@ const ExportUtil = (() => {
     triggerDownload(toXlsx(rows, sheetName), filename);
   }
 
-  return { downloadCsv, downloadXlsx };
+  return { downloadCsv, downloadXlsx, parseCsv };
 })();
