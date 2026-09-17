@@ -173,8 +173,15 @@ function buildComplete(ano) {
   const forecast = buildForecast(ano);
   const filiais = db.prepare('SELECT * FROM d_filiais').all();
 
-  const distHcLookup = buildCarryForwardLookup(db.prepare('SELECT * FROM tb_distribuicao_hc').all());
+  const distHcRows = db.prepare('SELECT * FROM tb_distribuicao_hc').all();
+  const distHcLookup = buildCarryForwardLookup(distHcRows);
   const distVolLookup = buildCarryForwardLookup(db.prepare('SELECT * FROM tb_distribuicao_volume').all());
+  // Operações que já têm ALGUMA % de HC cadastrada (em qualquer filial/mês):
+  // usado só pelo caso Tempo Logado/Posição com HC Contratado, para decidir
+  // se uma filial sem % própria deve valer 0% (a operação já foi distribuída,
+  // só não bateu naquela filial) ou dividir o HC Contratado entre as filiais
+  // candidatas (a operação nunca teve Distribuição de HC cadastrada nenhuma).
+  const operacoesComDistHc = new Set(distHcRows.map(r => r.nom_operacao));
   const tbAbs = mapByKey(db.prepare('SELECT * FROM tb_abs').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbTo = mapByKey(db.prepare('SELECT * FROM tb_to').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbFerias = mapByKey(db.prepare('SELECT * FROM tb_ferias').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
@@ -195,6 +202,16 @@ function buildComplete(ano) {
   const tbBodyshop = mapByKey(db.prepare('SELECT * FROM tb_bodyshop').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbUnitarios = mapByKey(db.prepare('SELECT * FROM tb_unitarios').all(), r => `${r.filial}${r.operacao}`);
   const cadastroOperacoes = mapByKey(db.prepare('SELECT * FROM cadastro_operacoes').all(), r => `${r.filial}${r.operacao}`);
+  // Quantas filiais faturam essa operação por Tempo Logado/Posição — usado só
+  // pelo fallback de hcRevisado abaixo: sem Distribuição de HC cadastrada,
+  // divide o HC Contratado igualmente entre elas em vez de repetir o valor
+  // cheio em cada uma (que duplicaria/multiplicaria o HC Contratado por filial).
+  const hcBasedFiliaisPorOperacao = new Map();
+  for (const u of tbUnitarios.values()) {
+    if (u.tipo_faturamento === TEMPO_LOGADO || u.tipo_faturamento === POSICAO) {
+      hcBasedFiliaisPorOperacao.set(u.operacao, (hcBasedFiliaisPorOperacao.get(u.operacao) || 0) + 1);
+    }
+  }
 
   const out = [];
   for (const f of forecast) {
@@ -212,11 +229,20 @@ function buildComplete(ano) {
 
       const volumeRevisado = Math.round(f.volume * pcrtVolume);
       // Faturamento por Tempo Logado/Posição (PA fixa): o HC Contratado é um
-      // número fechado por operação, não uma grandeza a ratear por % de
-      // Distribuição — projeta o valor cadastrado em Dimensionamento direto,
-      // sem depender de haver uma linha em Distribuição de HC para o mês.
+      // número fechado por operação — mas quando a operação tem mais de uma
+      // filial (ex.: cadastrada em Tempo Logado/Posição em duas filiais), a
+      // % de Distribuição de HC ainda decide QUAL filial recebe esse HC, senão
+      // o mesmo HC Contratado é somado uma vez por filial (duplicando o total).
+      // Se a filial não tem % própria (pcrtHc null): 0% quando a operação já
+      // tem Distribuição de HC cadastrada em ALGUMA filial (ela só não bateu
+      // nesta); sem NENHUMA Distribuição de HC cadastrada, divide o HC
+      // Contratado em partes iguais entre as filiais que faturam essa operação
+      // por Tempo Logado/Posição (1 filial só = 100% pra ela, igual antes).
+      const pcrtHcTempoLogadoPosicao = pcrtHc != null
+        ? pcrtHc
+        : operacoesComDistHc.has(f.nom_operacao) ? 0 : 1 / (hcBasedFiliaisPorOperacao.get(f.nom_operacao) || 1);
       const hcRevisado = (isHcBased && f.hc_contratado > 0)
-        ? Math.round(f.hc_contratado)
+        ? Math.round(f.hc_contratado * pcrtHcTempoLogadoPosicao)
         : Math.round((f.hc_contratado > 0 ? f.hc_contratado : f.hc_dimensionado) * pcrtHc);
 
       const abs = tbAbs.get(kDist)?.valor ?? 0;
