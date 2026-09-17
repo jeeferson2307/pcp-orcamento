@@ -237,17 +237,24 @@ const Store = {
     }
 
     function summarize(list) {
-      const s = { qtd_linhas: list.length, hc_dim: 0, fte_financeiro: 0, receita_bruta: 0 };
+      const s = { qtd_linhas: list.length, hc_dim: 0, fte_financeiro: 0, receita_bruta: 0, numerador_faturamento: 0 };
       for (const r of list) {
         s.hc_dim += r.hc_dim || 0;
         s.fte_financeiro += r.fte_financeiro || 0;
         s.receita_bruta += r.receita_bruta || 0;
+        s.numerador_faturamento += r._numerador_faturamento || 0;
       }
       s.absenteismo = weighted(list, 'absenteismo');
       s.turnover = weighted(list, 'turnover');
       s.ferias = weighted(list, 'ferias');
       s.folga_extra = weighted(list, 'folga_extra');
       s.rob_financeiro = s.fte_financeiro > 0 ? s.receita_bruta / s.fte_financeiro : 0;
+      // Unitário cadastrado, sumarizado: quando a linha resumida junta várias
+      // filiais/meses/tipos de faturamento, reconstrói um unitário médio
+      // dividindo a Receita Bruta do grupo pela regra do tipo de faturamento
+      // (HC Revisado/Ocupação p/ Tempo Logado e Posição; Volume Revisado
+      // ajustado por TMA ou por Abandono/Shortcalls p/ Minutagem e Evento).
+      s.unitario_medio = s.numerador_faturamento > 0 ? s.receita_bruta / s.numerador_faturamento : 0;
       return s;
     }
 

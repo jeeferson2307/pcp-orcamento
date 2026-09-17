@@ -336,6 +336,11 @@ function buildComplete(ano) {
         _volume_revisado: volumeRevisado,
         _hc_revisado: hcRevisado,
         _tma: f.tma,
+        // Base usada pra reconstruir um "Unitário" médio quando várias linhas
+        // (filiais/meses/tipos de faturamento diferentes) são somadas numa
+        // única linha resumida: Receita Bruta do grupo ÷ soma deste campo
+        // (ver Store.getDashboard/summarize em store.js).
+        _numerador_faturamento: numeradorFaturamento,
       });
     }
   }

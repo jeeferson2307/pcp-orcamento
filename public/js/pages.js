@@ -25,6 +25,7 @@ function yearOptions(meta, selected) {
 function groupRowCells(g) {
   return `
     <td>${Fmt.display(g.receita_bruta,'currency')}</td>
+    <td>${Fmt.display(g.unitario_medio,'currency')}</td>
     <td>${Fmt.display(g.hc_dim,'number')}</td>
     <td>${Fmt.display(g.fte_financeiro,'number')}</td>
     <td>${Fmt.display(g.rob_financeiro,'currency')}</td>
@@ -337,7 +338,7 @@ async function renderDashboardPage(container, meta) {
     document.getElementById('drill-hint').textContent = data.drillBy !== 'none'
       ? `(clique numa linha para recolher o detalhamento por ${DRILL_LABELS[data.drillBy]})` : '';
     const tbl = document.getElementById('tbl-dash');
-    tbl.innerHTML = `<thead><tr><th>${label}</th><th>Receita Bruta (R$)</th><th>HC Dim</th><th>FTE Financeiro</th><th>ROB/Financeiro (R$)</th><th>ABS (%)</th><th>TO (%)</th><th>Férias (%)</th><th>Folga Adic. (%)</th></tr></thead>`;
+    tbl.innerHTML = `<thead><tr><th>${label}</th><th>Receita Bruta (R$)</th><th>Unitário (R$)</th><th>HC Dim</th><th>FTE Financeiro</th><th>ROB/Financeiro (R$)</th><th>ABS (%)</th><th>TO (%)</th><th>Férias (%)</th><th>Folga Adic. (%)</th></tr></thead>`;
     const tbody = document.createElement('tbody');
     const hasDrill = data.drillBy !== 'none';
     for (const g of data.grupos) {
