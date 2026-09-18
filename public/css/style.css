@@ -229,6 +229,27 @@ input:focus, select:focus, button:focus-visible {
 }
 
 /* ============================================================
+   Grade de filtros (Painel Gerencial) — rótulo em cima, campo embaixo,
+   colunas de largura igual, pra nenhum filtro ficar maior que os outros
+   (Operação/Centro de Custo tendiam a esticar mais que um <select> comum).
+   ============================================================ */
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.filter-grid label {
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-1);
+  font-size: 12px; color: var(--text-muted); font-weight: 500; min-width: 0;
+}
+.filter-grid select,
+.filter-grid .combo { width: 100%; min-width: 0; }
+.filter-grid select,
+.filter-grid .combo-input,
+.filter-grid .multi-combo-btn { min-height: 36px; box-sizing: border-box; }
+
+/* ============================================================
    Combobox (select pesquisável) — ver combobox.js
    ============================================================ */
 .combo { position: relative; display: inline-block; min-width: 200px; }

@@ -185,11 +185,9 @@ async function renderDashboardPage(container, meta) {
   const fs = dashboardFilterState;
 
   container.innerHTML = `
-    <div class="toolbar">
+    <div class="filter-grid">
       <label>Agrupar por <select id="d-group">${GROUP_OPTIONS_HTML}</select></label>
       <label>Drill <select id="d-drill">${DRILL_OPTIONS_HTML}</select></label>
-    </div>
-    <div class="toolbar">
       <label>Ano <select id="d-ano">${yearOptions(meta, fs.ano)}</select></label>
       <label>Responsável PCP <select id="d-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="d-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
