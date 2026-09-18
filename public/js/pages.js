@@ -189,6 +189,8 @@ async function renderDashboardPage(container, meta) {
       <label>Agrupar por <select id="d-group">${GROUP_OPTIONS_HTML}</select></label>
       <label>Drill <select id="d-drill">${DRILL_OPTIONS_HTML}</select></label>
       <label>Ano <select id="d-ano">${yearOptions(meta, fs.ano)}</select></label>
+    </div>
+    <div class="filter-grid">
       <label>Responsável PCP <select id="d-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="d-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Operação <span id="d-operacao-slot"></span></label>
@@ -239,10 +241,10 @@ async function renderDashboardPage(container, meta) {
   // load() recursivo a partir do próprio evento de mudança deles.
   let syncingFilters = false;
 
-  // Ano vira combobox (select pesquisável) — Responsável PCP e Gerente
-  // continuam <select> simples. Operação e Descrição Centro de Custo são
-  // multi-combobox (seleção múltipla, default = "Todas" = nada selecionado).
-  enhanceCombobox(document.getElementById('d-ano'));
+  // Ano fica como <select> simples, igual Agrupar por/Drill/Responsável
+  // PCP/Gerente (poucas opções, combobox pesquisável não faz falta aqui).
+  // Só Operação e Descrição Centro de Custo são multi-combobox (seleção
+  // múltipla, default = "Todas" = nada selecionado).
   const opMulti = createMultiCombobox(document.getElementById('d-operacao-slot'), {
     options: meta.operacoes || [], allLabel: 'Todas',
     onChange: () => { if (!syncingFilters) load(); },
