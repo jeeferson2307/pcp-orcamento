@@ -239,7 +239,11 @@ input:focus, select:focus, button:focus-visible {
   gap: var(--sp-4);
   margin-bottom: var(--sp-5);
 }
-.filter-grid label {
+/* ">" (só filho direto): sem isso, a regra também pega os <label> das opções
+   de checkbox dentro do menu do multi-select (.multi-combo-option), que
+   ficam aninhados dentro do .filter-grid — o checkbox e o texto empilhavam
+   em coluna em vez de ficar lado a lado. */
+.filter-grid > label {
   display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-1);
   font-size: 12px; color: var(--text-muted); font-weight: 500; min-width: 0;
 }
@@ -279,12 +283,12 @@ input:focus, select:focus, button:focus-visible {
 .multi-combo-search { font: inherit; color: var(--text); border: 1px solid var(--input-border); border-radius: var(--radius-sm); padding: var(--sp-2) var(--sp-3); background: var(--input-bg); }
 .multi-combo-list { max-height: 220px; overflow-y: auto; }
 .multi-combo-option {
-  display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2);
+  display: flex; flex-direction: row; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2);
   cursor: pointer; font-size: 13px; border-radius: var(--radius-sm);
 }
 .multi-combo-option:hover { background: var(--accent-soft); }
-.multi-combo-option input[type=checkbox] { flex-shrink: 0; }
-.multi-combo-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-combo-option input[type=checkbox] { flex-shrink: 0; width: 15px; height: 15px; }
+.multi-combo-option span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .multi-combo-actions { display: flex; justify-content: space-between; gap: var(--sp-2); border-top: 1px solid var(--border); padding-top: var(--sp-2); }
 .multi-combo-actions button { padding: var(--sp-1) var(--sp-2); font-size: 12px; }
 .toolbar label {
