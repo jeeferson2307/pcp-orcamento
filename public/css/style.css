@@ -227,6 +227,20 @@ input:focus, select:focus, button:focus-visible {
   margin-bottom: var(--sp-5);
   flex-wrap: wrap;
 }
+
+/* ============================================================
+   Combobox (select pesquisável) — ver combobox.js
+   ============================================================ */
+.combo { position: relative; display: inline-block; min-width: 200px; }
+.combo-input { width: 100%; cursor: text; }
+.combo-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md); max-height: 260px; overflow-y: auto; padding: var(--sp-1) 0;
+}
+.combo-option { padding: var(--sp-2) var(--sp-3); cursor: pointer; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.combo-option:hover, .combo-option.hover, .combo-option.active { background: var(--accent-soft); }
+.combo-empty { padding: var(--sp-2) var(--sp-3); color: var(--text-muted); font-size: 12.5px; }
 .toolbar label {
   display: flex; align-items: center; gap: var(--sp-2);
   font-size: 12px; color: var(--text-muted); font-weight: 500;

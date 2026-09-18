@@ -27,20 +27,33 @@ async function renderFlatGrid(container, table, meta) {
 
   container.innerHTML = `
     <div class="toolbar">
-      <span class="small">${rows.length} registro(s)</span>
+      <div class="search-input" id="flat-search-wrap" style="max-width:320px"><span data-icon="search"></span><input type="text" id="flat-search" placeholder="Buscar…"></div>
+      <span class="small" id="flat-count">${rows.length} registro(s)</span>
       <button class="primary" id="btn-new-record">${Icon('plus')} Novo registro</button>
     </div>
     <div class="panel"><table class="grid" id="flat-table"></table></div>
   `;
+  applyIcons(container);
+
+  // Busca em qualquer coluna visível (mesmo campo/rótulo mostrado na grade),
+  // sem distinguir maiúsculas/minúsculas — mesmo princípio do Analítico.
+  let filtered = rows;
+  function applyFilter() {
+    const q = container.querySelector('#flat-search').value.trim().toLowerCase();
+    filtered = !q ? rows : rows.filter(rec => fields.some(f => String(rec[f.key] ?? '').toLowerCase().includes(q)));
+    container.querySelector('#flat-count').textContent = `${filtered.length} registro(s)`;
+    draw();
+  }
+  container.querySelector('#flat-search').oninput = applyFilter;
 
   function draw() {
     const table_ = container.querySelector('#flat-table');
     table_.innerHTML = `<thead><tr>${fields.map(f => `<th>${escapeHtml(f.label)}</th>`).join('')}<th></th></tr></thead>`;
     const tbody = document.createElement('tbody');
-    if (rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="${fields.length + 1}"><div class="empty-state">Nenhum registro ainda. Use "Novo registro" para começar.</div></td></tr>`;
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${fields.length + 1}"><div class="empty-state">${rows.length === 0 ? 'Nenhum registro ainda. Use "Novo registro" para começar.' : 'Nenhum registro encontrado.'}</div></td></tr>`;
     }
-    for (const rec of rows) {
+    for (const rec of filtered) {
       const tr = document.createElement('tr');
       tr.style.cursor = 'pointer';
       tr.innerHTML = fields.map(f => `<td>${escapeHtml(rec[f.key] ?? '')}</td>`).join('');
@@ -63,7 +76,7 @@ async function renderFlatGrid(container, table, meta) {
           await Api.del(`/api/flat/${table}`, rec);
           rows = rows.filter(r => r !== rec);
           toast('Registro excluído.');
-          draw();
+          applyFilter();
         } catch (e) { toast('Erro ao excluir: ' + e.message, true); }
       };
       tdActions.appendChild(delBtn);
@@ -139,7 +152,7 @@ async function renderFlatGrid(container, table, meta) {
             toast('Registro atualizado.');
           }
           close();
-          draw();
+          applyFilter();
         } catch (e) { toast('Erro ao salvar: ' + e.message, true); }
       };
     }, { size: 'form' });
@@ -151,7 +164,7 @@ async function renderFlatGrid(container, table, meta) {
     openRecordForm(blank, true);
   };
 
-  draw();
+  applyFilter();
 }
 
 function coerce(v) {

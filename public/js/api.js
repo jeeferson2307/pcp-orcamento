@@ -30,9 +30,9 @@ const Api = {
         if (method === 'GET') result = Store.getAnotacao('geral');
         else if (method === 'PUT') result = Store.setAnotacao('geral', body.texto);
       } else if (path === '/api/resultado') {
-        result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, apenasComCusto: q.apenasComCusto !== '0' });
+        result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, centroCusto: q.centroCusto, apenasComCusto: q.apenasComCusto !== '0' });
       } else if (path === '/api/dashboard') {
-        result = Store.getDashboard({ ano: parseInt(q.ano, 10), groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao });
+        result = Store.getDashboard({ ano: parseInt(q.ano, 10), groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, centroCusto: q.centroCusto });
       } else {
         return Promise.reject(new Error('rota desconhecida: ' + path));
       }

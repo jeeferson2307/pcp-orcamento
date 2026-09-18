@@ -176,7 +176,7 @@ function renderLineChart(container, { title, color, data, valueLabel, format }) 
 // módulo (não dentro de renderDashboardPage), para sobreviver a navegar para
 // outra página e voltar. Atualizado a cada load() bem-sucedido.
 const dashboardFilterState = {
-  ano: null, groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '', operacao: '',
+  ano: null, groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '', operacao: '', centroCusto: '',
 };
 
 async function renderDashboardPage(container, meta) {
@@ -193,6 +193,7 @@ async function renderDashboardPage(container, meta) {
       <label>Responsável PCP <select id="d-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="d-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Operação <select id="d-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+      <label>Descrição Centro de Custo <select id="d-cc"><option value="">Todas</option>${(meta.centrosCusto||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
     </div>
     <div id="kpis" class="kpi-row"></div>
     <div id="kpis2" class="kpi-row"></div>
@@ -221,15 +222,22 @@ async function renderDashboardPage(container, meta) {
   applyIcons(container);
 
   // Restaura os últimos filtros aplicados (Agrupar por/Drill/Responsável/
-  // Gerente/Operação) antes do primeiro load() — o Ano já vem selecionado
-  // via yearOptions(meta, fs.ano) acima. Se a operação/responsável/gerente
-  // persistido não existir mais entre as opções atuais, o <select> ignora o
-  // value inválido e volta para "Todos" sozinho.
+  // Gerente/Operação/Centro de Custo) antes do primeiro load() — o Ano já
+  // vem selecionado via yearOptions(meta, fs.ano) acima. Se a operação/
+  // responsável/gerente/centro de custo persistido não existir mais entre as
+  // opções atuais, o <select> ignora o value inválido e volta para "Todos".
   document.getElementById('d-group').value = fs.groupBy;
   document.getElementById('d-drill').value = fs.drillBy;
   document.getElementById('d-resp').value = fs.responsavel;
   document.getElementById('d-gerente').value = fs.gerente;
   document.getElementById('d-operacao').value = fs.operacao;
+  document.getElementById('d-cc').value = fs.centroCusto;
+
+  // Ano, Operação e Descrição Centro de Custo viram combobox (select
+  // pesquisável) — Responsável PCP e Gerente continuam <select> simples.
+  enhanceCombobox(document.getElementById('d-ano'));
+  enhanceCombobox(document.getElementById('d-operacao'));
+  enhanceCombobox(document.getElementById('d-cc'));
 
   container.querySelector('#btn-export-analitico').onclick = () => { location.hash = 'dashboard:analitico'; };
 
@@ -246,8 +254,9 @@ async function renderDashboardPage(container, meta) {
     const responsavel = document.getElementById('d-resp').value;
     const gerente = document.getElementById('d-gerente').value;
     const operacao = document.getElementById('d-operacao').value;
-    Object.assign(fs, { ano: Number(ano), groupBy, drillBy, responsavel, gerente, operacao });
-    data = await Api.get(`/api/dashboard?ano=${ano}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}`);
+    const centroCusto = document.getElementById('d-cc').value;
+    Object.assign(fs, { ano: Number(ano), groupBy, drillBy, responsavel, gerente, operacao, centroCusto });
+    data = await Api.get(`/api/dashboard?ano=${ano}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}&centroCusto=${encodeURIComponent(centroCusto)}`);
     expanded.clear();
     if (data.drillBy !== 'none') data.grupos.forEach(g => expanded.add(g.chave)); // drill inicia sempre aberto
     drawKpis();
@@ -255,15 +264,18 @@ async function renderDashboardPage(container, meta) {
     drawCharts();
 
     // Filtros relativos: cada combo só oferece valores compatíveis com o que
-    // já está selecionado nos outros dois. Se a seleção atual não existe mais
+    // já está selecionado nos outros três. Se a seleção atual não existe mais
     // no novo conjunto (ficou incompatível), ela é descartada e recarregamos.
     syncingFilters = true;
-    const fo = data.filterOptions || { responsaveis: [], gerentes: [], operacoes: [] };
+    const fo = data.filterOptions || { responsaveis: [], gerentes: [], operacoes: [], centrosCusto: [] };
     const respReset = repopulateFilterSelect(document.getElementById('d-resp'), fo.responsaveis, 'Todos');
     const gerReset = repopulateFilterSelect(document.getElementById('d-gerente'), fo.gerentes, 'Todos');
     const opReset = repopulateFilterSelect(document.getElementById('d-operacao'), fo.operacoes, 'Todas');
+    const ccReset = repopulateFilterSelect(document.getElementById('d-cc'), fo.centrosCusto, 'Todas');
+    refreshCombobox(document.getElementById('d-operacao'));
+    refreshCombobox(document.getElementById('d-cc'));
     syncingFilters = false;
-    if (respReset || gerReset || opReset) await load();
+    if (respReset || gerReset || opReset || ccReset) await load();
   }
 
   function drawKpis() {
@@ -371,6 +383,7 @@ async function renderDashboardPage(container, meta) {
   document.getElementById('d-resp').onchange = () => { if (!syncingFilters) load(); };
   document.getElementById('d-gerente').onchange = () => { if (!syncingFilters) load(); };
   document.getElementById('d-operacao').onchange = () => { if (!syncingFilters) load(); };
+  document.getElementById('d-cc').onchange = () => { if (!syncingFilters) load(); };
 
   await load();
 }
@@ -438,6 +451,7 @@ async function renderAnaliticoPage(container, meta) {
       <label>Responsável PCP <select id="a-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="a-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Operação <select id="a-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+      <label>Descrição Centro de Custo <select id="a-cc"><option value="">Todas</option>${(meta.centrosCusto||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
     </div>
     <div class="toolbar">
       <input type="text" id="a-busca" class="op-search" placeholder="Buscar em qualquer coluna…">
@@ -448,6 +462,12 @@ async function renderAnaliticoPage(container, meta) {
     <div class="panel"><table class="grid" id="tbl-analitico"></table></div>
   `;
   applyIcons(container);
+
+  // Ano, Operação e Descrição Centro de Custo viram combobox (select
+  // pesquisável) — Responsável PCP e Gerente continuam <select> simples.
+  enhanceCombobox(document.getElementById('a-ano'));
+  enhanceCombobox(document.getElementById('a-operacao'));
+  enhanceCombobox(document.getElementById('a-cc'));
 
   let rows = [];
   let filtered = [];
@@ -477,7 +497,8 @@ async function renderAnaliticoPage(container, meta) {
     const responsavel = document.getElementById('a-resp').value;
     const gerente = document.getElementById('a-gerente').value;
     const operacao = document.getElementById('a-operacao').value;
-    const resp = await Api.get(`/api/resultado?ano=${ano}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}`);
+    const centroCusto = document.getElementById('a-cc').value;
+    const resp = await Api.get(`/api/resultado?ano=${ano}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}&centroCusto=${encodeURIComponent(centroCusto)}`);
     rows = resp.rows;
     draw();
   }
@@ -493,6 +514,7 @@ async function renderAnaliticoPage(container, meta) {
   document.getElementById('a-resp').onchange = load;
   document.getElementById('a-gerente').onchange = load;
   document.getElementById('a-operacao').onchange = load;
+  document.getElementById('a-cc').onchange = load;
   document.getElementById('a-busca').oninput = draw;
   document.getElementById('btn-export-csv').onclick = () => exportar('csv');
   document.getElementById('btn-export-xlsx').onclick = () => exportar('xlsx');

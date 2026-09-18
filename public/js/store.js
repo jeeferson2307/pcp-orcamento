@@ -22,6 +22,7 @@ const Store = {
     const tiposDimens = DB.prepare('SELECT DISTINCT tipo_dimens FROM tb_premissas_dimens ORDER BY tipo_dimens').all().map(r => r.tipo_dimens);
     const responsaveis = DB.prepare('SELECT DISTINCT responsavel_pcp FROM cadastro_operacoes WHERE responsavel_pcp IS NOT NULL ORDER BY responsavel_pcp').all().map(r => r.responsavel_pcp);
     const gerentes = DB.prepare('SELECT DISTINCT gerente FROM cadastro_operacoes WHERE gerente IS NOT NULL ORDER BY gerente').all().map(r => r.gerente);
+    const centrosCusto = DB.prepare('SELECT DISTINCT desc_centro_de_custo FROM cadastro_operacoes WHERE desc_centro_de_custo IS NOT NULL ORDER BY desc_centro_de_custo').all().map(r => r.desc_centro_de_custo);
     // Intervalo de anos para os filtros "Ano" (Painel Gerencial, Analítico,
     // Calendário): do ano mínimo cadastrado em Cadastro Dimensionamento até
     // um ano além do máximo cadastrado (o "próximo ano" a orçar). Dinâmico —
@@ -32,7 +33,7 @@ const Store = {
     const anoMinDimens = anosDimens.length ? Math.min(...anosDimens) : anoAtual;
     const anoMaxDimens = anosDimens.length ? Math.max(...anosDimens) : anoAtual;
     return {
-      filiais, operacoes, tiposDimens, responsaveis, gerentes,
+      filiais, operacoes, tiposDimens, responsaveis, gerentes, centrosCusto,
       anoMinDimens, anoMaxDimens,
       wideTables: WIDE_TABLES,
       flatTables: Object.fromEntries(Object.entries(FLAT_TABLES).map(([k, v]) => [k, { ...v, columns: columnsOf(k) }])),
@@ -186,7 +187,7 @@ const Store = {
     return { ok: true, atualizado_em: agora };
   },
 
-  getResultado({ ano, responsavel, gerente, operacao, apenasComCusto }) {
+  getResultado({ ano, responsavel, gerente, operacao, centroCusto, apenasComCusto }) {
     // buildFinal devolve real (todos os anos com dado histórico) + projetado
     // (até o ano pedido) — precisa filtrar aqui pelo ano pedido, senão meses
     // de anos anteriores (reais) vazam para a visão do Analítico.
@@ -194,35 +195,43 @@ const Store = {
     rows = rows.filter(r => r.referencia && r.referencia.startsWith(String(ano)));
     if (gerente) rows = rows.filter(r => r.gerente === gerente);
     if (operacao) rows = rows.filter(r => r.operacao === operacao);
+    if (centroCusto) rows = rows.filter(r => r.desc_centro_custo === centroCusto);
     return { ano, count: rows.length, rows };
   },
 
   // Painel Gerencial: KPIs + tabela agrupável com drill-down por um campo
   // escolhido pelo usuário (Agrupar por / Drill) + série mensal para os
   // gráficos (Headcount, Volume/Chamadas, TMA e Receita Bruta x mês).
-  getDashboard({ ano, groupBy, drillBy, responsavel, gerente, operacao }) {
+  getDashboard({ ano, groupBy, drillBy, responsavel, gerente, operacao, centroCusto }) {
     const allowed = new Set(['diretoria', 'site', 'cliente', 'referencia', 'operacao', 'desc_centro_custo']);
     const g = allowed.has(groupBy) ? groupBy : 'diretoria';
     const d = allowed.has(drillBy) ? drillBy : 'none';
 
-    // Base sem os 3 filtros "relativos" (responsável/gerente/operação) — usada
-    // para calcular, para cada combo, quais valores dos OUTROS filtros ainda
-    // fazem sentido (slicers cruzados: escolher um nível restringe os demais).
-    // Já filtrada pelo ano pedido: buildFinal devolve real (todos os anos com
-    // dado histórico) + projetado (até o ano pedido), então sem esse filtro
-    // os KPIs/tabela somariam meses de anos anteriores junto com o ano atual.
+    // Base sem os 4 filtros "relativos" (responsável/gerente/operação/centro
+    // de custo) — usada para calcular, para cada combo, quais valores dos
+    // OUTROS filtros ainda fazem sentido (slicers cruzados: escolher um nível
+    // restringe os demais). Já filtrada pelo ano pedido: buildFinal devolve
+    // real (todos os anos com dado histórico) + projetado (até o ano
+    // pedido), então sem esse filtro os KPIs/tabela somariam meses de anos
+    // anteriores junto com o ano atual.
     const allRows = buildFinal(ano, { apenasComCusto: true }).filter(r => r.referencia && r.referencia.startsWith(String(ano)));
     const uniqSorted = (list, field) => [...new Set(list.map(r => r[field]).filter(Boolean))].sort();
+    const semResp = (r) => (!gerente || r.gerente === gerente) && (!operacao || r.operacao === operacao) && (!centroCusto || r.desc_centro_custo === centroCusto);
+    const semGerente = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!operacao || r.operacao === operacao) && (!centroCusto || r.desc_centro_custo === centroCusto);
+    const semOperacao = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente) && (!centroCusto || r.desc_centro_custo === centroCusto);
+    const semCentroCusto = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente) && (!operacao || r.operacao === operacao);
     const filterOptions = {
-      responsaveis: uniqSorted(allRows.filter(r => (!gerente || r.gerente === gerente) && (!operacao || r.operacao === operacao)), 'responsavel_pcp'),
-      gerentes: uniqSorted(allRows.filter(r => (!responsavel || r.responsavel_pcp === responsavel) && (!operacao || r.operacao === operacao)), 'gerente'),
-      operacoes: uniqSorted(allRows.filter(r => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente)), 'operacao'),
+      responsaveis: uniqSorted(allRows.filter(semResp), 'responsavel_pcp'),
+      gerentes: uniqSorted(allRows.filter(semGerente), 'gerente'),
+      operacoes: uniqSorted(allRows.filter(semOperacao), 'operacao'),
+      centrosCusto: uniqSorted(allRows.filter(semCentroCusto), 'desc_centro_custo'),
     };
 
     let rows = allRows;
     if (responsavel) rows = rows.filter(r => r.responsavel_pcp === responsavel);
     if (gerente) rows = rows.filter(r => r.gerente === gerente);
     if (operacao) rows = rows.filter(r => r.operacao === operacao);
+    if (centroCusto) rows = rows.filter(r => r.desc_centro_custo === centroCusto);
 
     // médias ponderadas por HC Dimensionado (uma linha com HC pequeno pesa menos
     // no indicador do que uma operação grande)
