@@ -32,7 +32,11 @@ const Api = {
       } else if (path === '/api/resultado') {
         result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, centroCusto: q.centroCusto, apenasComCusto: q.apenasComCusto !== '0' });
       } else if (path === '/api/dashboard') {
-        result = Store.getDashboard({ ano: parseInt(q.ano, 10), groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, centroCusto: q.centroCusto });
+        // Operação e Centro de Custo são seleção múltipla nesta tela — vêm
+        // como lista separada por vírgula (ver renderDashboardPage/pages.js).
+        const operacaoList = q.operacao ? q.operacao.split(',').filter(Boolean) : [];
+        const centroCustoList = q.centroCusto ? q.centroCusto.split(',').filter(Boolean) : [];
+        result = Store.getDashboard({ ano: parseInt(q.ano, 10), groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: operacaoList, centroCusto: centroCustoList });
       } else {
         return Promise.reject(new Error('rota desconhecida: ' + path));
       }

@@ -104,3 +104,119 @@ function refreshCombobox(selectEl) {
     selectEl._comboInput.value = opt ? opt.textContent : '';
   }
 }
+
+// ---------------------------------------------------------------
+// Multi-select pesquisável (combobox de seleção múltipla) — usado pelos
+// filtros Operação e Descrição Centro de Custo do Painel Gerencial, onde
+// faz sentido comparar/agregar mais de um valor ao mesmo tempo. Diferente
+// de enhanceCombobox, não envolve um <select> nativo (a UI de multi-select
+// nativa exige Ctrl+clique, ruim de descobrir) — mantém o próprio estado
+// (array de valores selecionados) e expõe uma API mínima.
+//
+// Uso:
+//   const ms = createMultiCombobox(document.getElementById('slot'), {
+//     options: ['A', 'B', 'C'], allLabel: 'Todas', onChange: () => load(),
+//   });
+//   ms.getValues();            // -> [] (vazio = "Todas"/default)
+//   ms.setOptions(novaLista);  // reconstrói as opções, descarta selecionados que sumiram
+//   ms.setValues(['A']);       // restaura seleção (ex.: filtro salvo)
+// ---------------------------------------------------------------
+function createMultiCombobox(container, { options, allLabel, onChange }) {
+  let opts = options.slice();
+  let selected = new Set();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'combo multi-combo';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'field-input combo-input multi-combo-btn';
+  const menu = document.createElement('div');
+  menu.className = 'combo-menu multi-combo-menu';
+  menu.hidden = true;
+  const search = document.createElement('input');
+  search.type = 'text';
+  search.className = 'multi-combo-search';
+  search.placeholder = 'Buscar…';
+  search.autocomplete = 'off';
+  search.spellcheck = false;
+  const list = document.createElement('div');
+  list.className = 'multi-combo-list';
+  const actions = document.createElement('div');
+  actions.className = 'multi-combo-actions';
+  const selAllBtn = document.createElement('button');
+  selAllBtn.type = 'button';
+  selAllBtn.textContent = 'Selecionar visíveis';
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button';
+  clearBtn.textContent = 'Limpar';
+  actions.append(selAllBtn, clearBtn);
+  menu.append(search, list, actions);
+  wrap.append(btn, menu);
+  container.appendChild(wrap);
+
+  function updateBtnLabel() {
+    if (selected.size === 0) btn.textContent = allLabel;
+    else if (selected.size === 1) btn.textContent = [...selected][0];
+    else btn.textContent = `${selected.size} selecionadas`;
+  }
+  function visibleOptions() {
+    const f = normalizeComboText(search.value);
+    return opts.filter(o => !f || normalizeComboText(o).includes(f));
+  }
+  function renderList() {
+    const visible = visibleOptions();
+    list.innerHTML = visible.length
+      ? visible.map(o => `<label class="multi-combo-option"><input type="checkbox" value="${escapeHtml(o)}"${selected.has(o) ? ' checked' : ''}><span>${escapeHtml(o)}</span></label>`).join('')
+      : `<div class="combo-empty">Nenhuma opção encontrada.</div>`;
+    list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) selected.add(cb.value); else selected.delete(cb.value);
+        updateBtnLabel();
+        onChange([...selected]);
+      });
+    });
+  }
+  function openMenu() { search.value = ''; renderList(); menu.hidden = false; search.focus(); }
+  function closeMenu() { menu.hidden = true; }
+
+  btn.addEventListener('click', () => { if (menu.hidden) openMenu(); else closeMenu(); });
+  search.addEventListener('input', renderList);
+  search.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+  selAllBtn.addEventListener('click', () => {
+    visibleOptions().forEach(o => selected.add(o));
+    renderList();
+    updateBtnLabel();
+    onChange([...selected]);
+  });
+  clearBtn.addEventListener('click', () => {
+    selected.clear();
+    renderList();
+    updateBtnLabel();
+    onChange([...selected]);
+  });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) closeMenu(); });
+
+  updateBtnLabel();
+
+  return {
+    getValues: () => [...selected],
+    setValues(arr) {
+      selected = new Set((arr || []).filter(v => opts.includes(v)));
+      updateBtnLabel();
+      if (!menu.hidden) renderList();
+    },
+    // Substitui a lista de opções (ex.: filtros cruzados recalculados após um
+    // load()). Retorna true se alguma seleção atual deixou de existir e foi
+    // descartada — quem chama pode então recarregar os dados.
+    setOptions(newOptions) {
+      opts = (newOptions || []).slice();
+      let changed = false;
+      for (const v of [...selected]) {
+        if (!opts.includes(v)) { selected.delete(v); changed = true; }
+      }
+      updateBtnLabel();
+      if (!menu.hidden) renderList();
+      return changed;
+    },
+  };
+}

@@ -206,6 +206,10 @@ const Store = {
     const allowed = new Set(['diretoria', 'site', 'cliente', 'referencia', 'operacao', 'desc_centro_custo']);
     const g = allowed.has(groupBy) ? groupBy : 'diretoria';
     const d = allowed.has(drillBy) ? drillBy : 'none';
+    // Operação e Centro de Custo são seleção múltipla (lista vazia = "Todas");
+    // aceita tanto array quanto um valor único, pra manter compatibilidade.
+    const operacaoList = Array.isArray(operacao) ? operacao.filter(Boolean) : (operacao ? [operacao] : []);
+    const centroCustoList = Array.isArray(centroCusto) ? centroCusto.filter(Boolean) : (centroCusto ? [centroCusto] : []);
 
     // Base sem os 4 filtros "relativos" (responsável/gerente/operação/centro
     // de custo) — usada para calcular, para cada combo, quais valores dos
@@ -216,10 +220,10 @@ const Store = {
     // anteriores junto com o ano atual.
     const allRows = buildFinal(ano, { apenasComCusto: true }).filter(r => r.referencia && r.referencia.startsWith(String(ano)));
     const uniqSorted = (list, field) => [...new Set(list.map(r => r[field]).filter(Boolean))].sort();
-    const semResp = (r) => (!gerente || r.gerente === gerente) && (!operacao || r.operacao === operacao) && (!centroCusto || r.desc_centro_custo === centroCusto);
-    const semGerente = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!operacao || r.operacao === operacao) && (!centroCusto || r.desc_centro_custo === centroCusto);
-    const semOperacao = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente) && (!centroCusto || r.desc_centro_custo === centroCusto);
-    const semCentroCusto = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente) && (!operacao || r.operacao === operacao);
+    const semResp = (r) => (!gerente || r.gerente === gerente) && (!operacaoList.length || operacaoList.includes(r.operacao)) && (!centroCustoList.length || centroCustoList.includes(r.desc_centro_custo));
+    const semGerente = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!operacaoList.length || operacaoList.includes(r.operacao)) && (!centroCustoList.length || centroCustoList.includes(r.desc_centro_custo));
+    const semOperacao = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente) && (!centroCustoList.length || centroCustoList.includes(r.desc_centro_custo));
+    const semCentroCusto = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!gerente || r.gerente === gerente) && (!operacaoList.length || operacaoList.includes(r.operacao));
     const filterOptions = {
       responsaveis: uniqSorted(allRows.filter(semResp), 'responsavel_pcp'),
       gerentes: uniqSorted(allRows.filter(semGerente), 'gerente'),
@@ -230,8 +234,8 @@ const Store = {
     let rows = allRows;
     if (responsavel) rows = rows.filter(r => r.responsavel_pcp === responsavel);
     if (gerente) rows = rows.filter(r => r.gerente === gerente);
-    if (operacao) rows = rows.filter(r => r.operacao === operacao);
-    if (centroCusto) rows = rows.filter(r => r.desc_centro_custo === centroCusto);
+    if (operacaoList.length) rows = rows.filter(r => operacaoList.includes(r.operacao));
+    if (centroCustoList.length) rows = rows.filter(r => centroCustoList.includes(r.desc_centro_custo));
 
     // médias ponderadas por HC Dimensionado (uma linha com HC pequeno pesa menos
     // no indicador do que uma operação grande)

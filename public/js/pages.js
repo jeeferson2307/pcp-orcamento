@@ -176,7 +176,8 @@ function renderLineChart(container, { title, color, data, valueLabel, format }) 
 // módulo (não dentro de renderDashboardPage), para sobreviver a navegar para
 // outra página e voltar. Atualizado a cada load() bem-sucedido.
 const dashboardFilterState = {
-  ano: null, groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '', operacao: '', centroCusto: '',
+  ano: null, groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '',
+  operacao: [], centroCusto: [], // seleção múltipla — vazio = "Todas" (default)
 };
 
 async function renderDashboardPage(container, meta) {
@@ -192,8 +193,8 @@ async function renderDashboardPage(container, meta) {
       <label>Ano <select id="d-ano">${yearOptions(meta, fs.ano)}</select></label>
       <label>Responsável PCP <select id="d-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="d-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
-      <label>Operação <select id="d-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
-      <label>Descrição Centro de Custo <select id="d-cc"><option value="">Todas</option>${(meta.centrosCusto||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+      <label>Operação <span id="d-operacao-slot"></span></label>
+      <label>Descrição Centro de Custo <span id="d-cc-slot"></span></label>
     </div>
     <div id="kpis" class="kpi-row"></div>
     <div id="kpis2" class="kpi-row"></div>
@@ -222,30 +223,38 @@ async function renderDashboardPage(container, meta) {
   applyIcons(container);
 
   // Restaura os últimos filtros aplicados (Agrupar por/Drill/Responsável/
-  // Gerente/Operação/Centro de Custo) antes do primeiro load() — o Ano já
-  // vem selecionado via yearOptions(meta, fs.ano) acima. Se a operação/
-  // responsável/gerente/centro de custo persistido não existir mais entre as
-  // opções atuais, o <select> ignora o value inválido e volta para "Todos".
+  // Gerente) antes do primeiro load() — o Ano já vem selecionado via
+  // yearOptions(meta, fs.ano) acima; Operação/Centro de Custo são restaurados
+  // abaixo, junto com a criação dos multi-combobox. Se o responsável/gerente
+  // persistido não existir mais entre as opções atuais, o <select> ignora o
+  // value inválido e volta para "Todos" sozinho.
   document.getElementById('d-group').value = fs.groupBy;
   document.getElementById('d-drill').value = fs.drillBy;
   document.getElementById('d-resp').value = fs.responsavel;
   document.getElementById('d-gerente').value = fs.gerente;
-  document.getElementById('d-operacao').value = fs.operacao;
-  document.getElementById('d-cc').value = fs.centroCusto;
-
-  // Ano, Operação e Descrição Centro de Custo viram combobox (select
-  // pesquisável) — Responsável PCP e Gerente continuam <select> simples.
-  enhanceCombobox(document.getElementById('d-ano'));
-  enhanceCombobox(document.getElementById('d-operacao'));
-  enhanceCombobox(document.getElementById('d-cc'));
 
   container.querySelector('#btn-export-analitico').onclick = () => { location.hash = 'dashboard:analitico'; };
 
   let data = null;
 
-  // true enquanto repopulamos os selects de filtro por código, para não
-  // disparar um load() recursivo a partir do próprio evento "change" deles.
+  // true enquanto repopulamos os filtros por código, para não disparar um
+  // load() recursivo a partir do próprio evento de mudança deles.
   let syncingFilters = false;
+
+  // Ano vira combobox (select pesquisável) — Responsável PCP e Gerente
+  // continuam <select> simples. Operação e Descrição Centro de Custo são
+  // multi-combobox (seleção múltipla, default = "Todas" = nada selecionado).
+  enhanceCombobox(document.getElementById('d-ano'));
+  const opMulti = createMultiCombobox(document.getElementById('d-operacao-slot'), {
+    options: meta.operacoes || [], allLabel: 'Todas',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  opMulti.setValues(fs.operacao);
+  const ccMulti = createMultiCombobox(document.getElementById('d-cc-slot'), {
+    options: meta.centrosCusto || [], allLabel: 'Todas',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  ccMulti.setValues(fs.centroCusto);
 
   async function load() {
     const ano = document.getElementById('d-ano').value;
@@ -253,10 +262,12 @@ async function renderDashboardPage(container, meta) {
     const drillBy = document.getElementById('d-drill').value;
     const responsavel = document.getElementById('d-resp').value;
     const gerente = document.getElementById('d-gerente').value;
-    const operacao = document.getElementById('d-operacao').value;
-    const centroCusto = document.getElementById('d-cc').value;
-    Object.assign(fs, { ano: Number(ano), groupBy, drillBy, responsavel, gerente, operacao, centroCusto });
-    data = await Api.get(`/api/dashboard?ano=${ano}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}&centroCusto=${encodeURIComponent(centroCusto)}`);
+    const operacaoList = opMulti.getValues();
+    const centroCustoList = ccMulti.getValues();
+    Object.assign(fs, { ano: Number(ano), groupBy, drillBy, responsavel, gerente, operacao: operacaoList, centroCusto: centroCustoList });
+    const opParam = encodeURIComponent(operacaoList.join(','));
+    const ccParam = encodeURIComponent(centroCustoList.join(','));
+    data = await Api.get(`/api/dashboard?ano=${ano}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${opParam}&centroCusto=${ccParam}`);
     expanded.clear();
     if (data.drillBy !== 'none') data.grupos.forEach(g => expanded.add(g.chave)); // drill inicia sempre aberto
     drawKpis();
@@ -270,10 +281,8 @@ async function renderDashboardPage(container, meta) {
     const fo = data.filterOptions || { responsaveis: [], gerentes: [], operacoes: [], centrosCusto: [] };
     const respReset = repopulateFilterSelect(document.getElementById('d-resp'), fo.responsaveis, 'Todos');
     const gerReset = repopulateFilterSelect(document.getElementById('d-gerente'), fo.gerentes, 'Todos');
-    const opReset = repopulateFilterSelect(document.getElementById('d-operacao'), fo.operacoes, 'Todas');
-    const ccReset = repopulateFilterSelect(document.getElementById('d-cc'), fo.centrosCusto, 'Todas');
-    refreshCombobox(document.getElementById('d-operacao'));
-    refreshCombobox(document.getElementById('d-cc'));
+    const opReset = opMulti.setOptions(fo.operacoes);
+    const ccReset = ccMulti.setOptions(fo.centrosCusto);
     syncingFilters = false;
     if (respReset || gerReset || opReset || ccReset) await load();
   }
@@ -382,8 +391,8 @@ async function renderDashboardPage(container, meta) {
   document.getElementById('d-drill').onchange = load;
   document.getElementById('d-resp').onchange = () => { if (!syncingFilters) load(); };
   document.getElementById('d-gerente').onchange = () => { if (!syncingFilters) load(); };
-  document.getElementById('d-operacao').onchange = () => { if (!syncingFilters) load(); };
-  document.getElementById('d-cc').onchange = () => { if (!syncingFilters) load(); };
+  // Operação e Centro de Custo (multi-combobox) já disparam load() pelo
+  // próprio onChange passado a createMultiCombobox, acima.
 
   await load();
 }
