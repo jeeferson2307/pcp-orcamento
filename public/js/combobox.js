@@ -23,7 +23,7 @@ function enhanceCombobox(selectEl) {
   wrap.className = 'combo';
   const input = document.createElement('input');
   input.type = 'text';
-  input.className = 'field-input combo-input';
+  input.className = 'combo-input';
   input.autocomplete = 'off';
   input.spellcheck = false;
   const menu = document.createElement('div');
@@ -129,7 +129,7 @@ function createMultiCombobox(container, { options, allLabel, onChange }) {
   wrap.className = 'combo multi-combo';
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'field-input combo-input multi-combo-btn';
+  btn.className = 'combo-input multi-combo-btn';
   const menu = document.createElement('div');
   menu.className = 'combo-menu multi-combo-menu';
   menu.hidden = true;

@@ -253,7 +253,16 @@ input:focus, select:focus, button:focus-visible {
    Combobox (select pesquisável) — ver combobox.js
    ============================================================ */
 .combo { position: relative; display: inline-block; min-width: 200px; }
-.combo-input { width: 100%; cursor: text; }
+/* Estilo próprio (não depende de .field-input, feito pra formulário de modal
+   — padding/margem diferentes deixavam o botão maior e desalinhado dos
+   <select> vizinhos). Serve tanto o <input> do combobox simples quanto o
+   <button> do multi-combo (ver .multi-combo-btn). */
+.combo-input {
+  display: block; width: 100%; margin: 0; cursor: text; font: inherit; color: var(--text);
+  border: 1px solid var(--input-border); border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3); background: var(--input-bg);
+}
+.combo-input:hover { border-color: var(--text-faint); background: var(--surface); }
 .combo-menu {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
