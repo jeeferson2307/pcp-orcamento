@@ -15,6 +15,11 @@ function wideIdCols(cfg) {
   return cfg.hasTipoDimens ? ['referencia', 'tipo_dimens', 'nom_operacao'] : ['referencia', 'nom_operacao'];
 }
 
+// Nomes dos 12 meses do ano, em ordem — usado pelo filtro de Mês (seleção
+// múltipla por nome) do Painel Gerencial, tanto aqui (converter nome em
+// número de 2 dígitos) quanto em pages.js (montar as opções do multi-combo).
+const MES_NOMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
 const Store = {
   getMeta() {
     const filiais = DB.prepare('SELECT unidade FROM d_filiais ORDER BY rowid').all().map(r => r.unidade);
@@ -202,7 +207,9 @@ const Store = {
   // Painel Gerencial: KPIs + tabela agrupável com drill-down por um campo
   // escolhido pelo usuário (Agrupar por / Drill) + série mensal para os
   // gráficos (Headcount, Volume/Chamadas, TMA e Receita Bruta x mês).
-  getDashboard({ ano, groupBy, drillBy, responsavel, gerente, operacao, centroCusto }) {
+  // Ano e Mês são opcionais/seleção múltipla (lista vazia = "Todos" = sem
+  // filtro naquela dimensão) — mesmo padrão de Operação/Centro de Custo.
+  getDashboard({ ano, mes, groupBy, drillBy, responsavel, gerente, operacao, centroCusto }) {
     const allowed = new Set(['diretoria', 'site', 'cliente', 'referencia', 'operacao', 'desc_centro_custo']);
     const g = allowed.has(groupBy) ? groupBy : 'diretoria';
     const d = allowed.has(drillBy) ? drillBy : 'none';
@@ -210,15 +217,35 @@ const Store = {
     // aceita tanto array quanto um valor único, pra manter compatibilidade.
     const operacaoList = Array.isArray(operacao) ? operacao.filter(Boolean) : (operacao ? [operacao] : []);
     const centroCustoList = Array.isArray(centroCusto) ? centroCusto.filter(Boolean) : (centroCusto ? [centroCusto] : []);
+    const anoList = (Array.isArray(ano) ? ano : (ano ? [ano] : [])).map(Number).filter(a => !Number.isNaN(a));
+    // Mês chega como nome ("Março") do multi-combo — converte pro número de
+    // 2 dígitos (bate com referencia.slice(5,7)).
+    const mesNomeParaNumero = (nome) => { const i = MES_NOMES.indexOf(nome); return i >= 0 ? String(i + 1).padStart(2, '0') : null; };
+    const mesList = (Array.isArray(mes) ? mes : (mes ? [mes] : [])).map(mesNomeParaNumero).filter(Boolean);
+
+    // buildFinal projeta até um "ano" só — sem nenhum Ano selecionado (filtro
+    // opcional), usa o mesmo "próximo ano" dinâmico do resto do sistema
+    // (meta.anoMaxDimens + 1); com um ou mais anos selecionados, projeta até
+    // o maior deles (os demais, se já existirem como real/projetado, entram
+    // normalmente no filtro abaixo).
+    let anoProjetar;
+    if (anoList.length) {
+      anoProjetar = Math.max(...anoList);
+    } else {
+      const anosDimens = DB.prepare('SELECT referencia FROM tb_premissas_dimens WHERE referencia IS NOT NULL').all()
+        .map(r => Number(r.referencia.slice(0, 4))).filter(a => !Number.isNaN(a));
+      anoProjetar = anosDimens.length ? Math.max(...anosDimens) + 1 : new Date().getFullYear();
+    }
 
     // Base sem os 4 filtros "relativos" (responsável/gerente/operação/centro
     // de custo) — usada para calcular, para cada combo, quais valores dos
     // OUTROS filtros ainda fazem sentido (slicers cruzados: escolher um nível
-    // restringe os demais). Já filtrada pelo ano pedido: buildFinal devolve
-    // real (todos os anos com dado histórico) + projetado (até o ano
-    // pedido), então sem esse filtro os KPIs/tabela somariam meses de anos
-    // anteriores junto com o ano atual.
-    const allRows = buildFinal(ano, { apenasComCusto: true }).filter(r => r.referencia && r.referencia.startsWith(String(ano)));
+    // restringe os demais). Ano/Mês entram aqui (antes do cálculo dos
+    // cruzados) porque também são filtros da tela, não só o limite de
+    // projeção do forecast.
+    const allRows = buildFinal(anoProjetar, { apenasComCusto: true })
+      .filter(r => r.referencia && (!anoList.length || anoList.includes(Number(r.referencia.slice(0, 4)))))
+      .filter(r => r.referencia && (!mesList.length || mesList.includes(r.referencia.slice(5, 7))));
     const uniqSorted = (list, field) => [...new Set(list.map(r => r[field]).filter(Boolean))].sort();
     const semResp = (r) => (!gerente || r.gerente === gerente) && (!operacaoList.length || operacaoList.includes(r.operacao)) && (!centroCustoList.length || centroCustoList.includes(r.desc_centro_custo));
     const semGerente = (r) => (!responsavel || r.responsavel_pcp === responsavel) && (!operacaoList.length || operacaoList.includes(r.operacao)) && (!centroCustoList.length || centroCustoList.includes(r.desc_centro_custo));
@@ -296,14 +323,11 @@ const Store = {
       : (a, b) => b.fte_financeiro - a.fte_financeiro);
 
     // Série mensal para os gráficos — independente do Agrupar por/Drill,
-    // sempre respeita os filtros (ano, responsável, gerente, operação).
-    // Restrita aos 12 meses do "Ano" selecionado (buildFinal devolve real +
-    // projetado de vários anos; sem esse filtro os gráficos/estatísticas
-    // mensais misturariam meses de anos diferentes).
+    // sempre respeita os filtros (já aplicados em `rows`, incluindo Ano/Mês).
     const byMes = new Map();
     for (const r of rows) {
       const mk = r.referencia;
-      if (!mk || !mk.startsWith(String(ano))) continue;
+      if (!mk) continue;
       if (!byMes.has(mk)) byMes.set(mk, []);
       byMes.get(mk).push(r);
     }

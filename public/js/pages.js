@@ -22,6 +22,20 @@ function yearOptions(meta, selected) {
   return opts.map(a => `<option ${a === sel ? 'selected' : ''}>${a}</option>`).join('');
 }
 
+// Mesmo intervalo de yearOptions, mas como array de strings (pro multi-combo
+// de Ano do Painel Gerencial, que não usa <option> nativa).
+function dynamicYearList(meta) {
+  const min = meta?.anoMinDimens ?? new Date().getFullYear();
+  const max = (meta?.anoMaxDimens ?? new Date().getFullYear()) + 1;
+  const opts = [];
+  for (let a = min; a <= max; a++) opts.push(String(a));
+  return opts;
+}
+
+// MES_NOMES (lista fixa dos 12 meses, usada como opções do multi-combo de
+// Mês) vem de store.js — carregado antes deste arquivo e também usado lá
+// pra converter o nome escolhido de volta em número de 2 dígitos.
+
 function groupRowCells(g) {
   return `
     <td>${Fmt.display(g.receita_bruta,'currency')}</td>
@@ -36,15 +50,19 @@ function groupRowCells(g) {
   `;
 }
 
-// Peso de cada mês do ano para a "Média/Mês" ponderada dos cards de KPI —
-// usa a mesma base de Faturamento 5x2 (= dias úteis) da guia Calendário.
-// Só um peso genérico por mês (não por operação/Tipo Escala) porque o card
-// agrega várias operações de uma vez; é uma aproximação razoável para não
-// tratar todo mês como igual (fev pesa menos que um mês de 22 dias úteis).
-function pesosDiasFaturamentoPorMes(ano) {
-  const cal = fnCalendarioMensal(ano);
+// Peso de cada mês para a "Média/Mês" ponderada dos cards de KPI — usa a
+// mesma base de Faturamento 5x2 (= dias úteis) da guia Calendário. Só um
+// peso genérico por mês (não por operação/Tipo Escala) porque o card agrega
+// várias operações de uma vez; é uma aproximação razoável para não tratar
+// todo mês como igual (fev pesa menos que um mês de 22 dias úteis).
+// Recebe uma LISTA de anos (não um só): com o filtro de Ano opcional/
+// seleção múltipla, `porMes` pode ter meses de vários anos ao mesmo tempo.
+function pesosDiasFaturamentoPorMes(anos) {
   const pesos = new Map();
-  for (const [mes, b] of cal) pesos.set(mes, b.faturamento5x2);
+  for (const ano of anos) {
+    const cal = fnCalendarioMensal(ano);
+    for (const [mes, b] of cal) pesos.set(mes, b.faturamento5x2);
+  }
   return pesos;
 }
 
@@ -284,8 +302,8 @@ function renderStackedBarChart(container, { title, series, data, format, valueLa
 // módulo (não dentro de renderDashboardPage), para sobreviver a navegar para
 // outra página e voltar. Atualizado a cada load() bem-sucedido.
 const dashboardFilterState = {
-  ano: null, groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '',
-  operacao: [], centroCusto: [], // seleção múltipla — vazio = "Todas" (default)
+  groupBy: 'diretoria', drillBy: 'none', responsavel: '', gerente: '',
+  ano: [], mes: [], operacao: [], centroCusto: [], // seleção múltipla — vazio = "Todos" (default)
 };
 
 async function renderDashboardPage(container, meta) {
@@ -296,7 +314,8 @@ async function renderDashboardPage(container, meta) {
     <div class="filter-grid">
       <label>Agrupar por <select id="d-group">${GROUP_OPTIONS_HTML}</select></label>
       <label>Drill <select id="d-drill">${DRILL_OPTIONS_HTML}</select></label>
-      <label>Ano <select id="d-ano">${yearOptions(meta, fs.ano)}</select></label>
+      <label>Ano <span id="d-ano-slot"></span></label>
+      <label>Mês <span id="d-mes-slot"></span></label>
     </div>
     <div class="filter-grid">
       <label>Responsável PCP <select id="d-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
@@ -331,11 +350,10 @@ async function renderDashboardPage(container, meta) {
   applyIcons(container);
 
   // Restaura os últimos filtros aplicados (Agrupar por/Drill/Responsável/
-  // Gerente) antes do primeiro load() — o Ano já vem selecionado via
-  // yearOptions(meta, fs.ano) acima; Operação/Centro de Custo são restaurados
-  // abaixo, junto com a criação dos multi-combobox. Se o responsável/gerente
-  // persistido não existir mais entre as opções atuais, o <select> ignora o
-  // value inválido e volta para "Todos" sozinho.
+  // Gerente) antes do primeiro load(); Ano/Mês/Operação/Centro de Custo são
+  // restaurados abaixo, junto com a criação dos multi-combobox. Se o
+  // responsável/gerente persistido não existir mais entre as opções atuais,
+  // o <select> ignora o value inválido e volta para "Todos" sozinho.
   document.getElementById('d-group').value = fs.groupBy;
   document.getElementById('d-drill').value = fs.drillBy;
   document.getElementById('d-resp').value = fs.responsavel;
@@ -349,10 +367,20 @@ async function renderDashboardPage(container, meta) {
   // load() recursivo a partir do próprio evento de mudança deles.
   let syncingFilters = false;
 
-  // Ano fica como <select> simples, igual Agrupar por/Drill/Responsável
-  // PCP/Gerente (poucas opções, combobox pesquisável não faz falta aqui).
-  // Só Operação e Descrição Centro de Custo são multi-combobox (seleção
-  // múltipla, default = "Todas" = nada selecionado).
+  // Ano, Mês, Operação e Descrição Centro de Custo são multi-combobox
+  // (seleção múltipla, opcionais — default = "Todos" = nada selecionado,
+  // sem nenhum filtro aplicado naquela dimensão). Responsável PCP e Gerente
+  // continuam <select> simples.
+  const anoMulti = createMultiCombobox(document.getElementById('d-ano-slot'), {
+    options: dynamicYearList(meta), allLabel: 'Todos',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  anoMulti.setValues(fs.ano);
+  const mesMulti = createMultiCombobox(document.getElementById('d-mes-slot'), {
+    options: MES_NOMES, allLabel: 'Todos',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  mesMulti.setValues(fs.mes);
   const opMulti = createMultiCombobox(document.getElementById('d-operacao-slot'), {
     options: meta.operacoes || [], allLabel: 'Todas',
     onChange: () => { if (!syncingFilters) load(); },
@@ -365,26 +393,31 @@ async function renderDashboardPage(container, meta) {
   ccMulti.setValues(fs.centroCusto);
 
   async function load() {
-    const ano = document.getElementById('d-ano').value;
     const groupBy = document.getElementById('d-group').value;
     const drillBy = document.getElementById('d-drill').value;
     const responsavel = document.getElementById('d-resp').value;
     const gerente = document.getElementById('d-gerente').value;
+    const anoList = anoMulti.getValues();
+    const mesList = mesMulti.getValues();
     const operacaoList = opMulti.getValues();
     const centroCustoList = ccMulti.getValues();
-    Object.assign(fs, { ano: Number(ano), groupBy, drillBy, responsavel, gerente, operacao: operacaoList, centroCusto: centroCustoList });
+    Object.assign(fs, { groupBy, drillBy, responsavel, gerente, ano: anoList, mes: mesList, operacao: operacaoList, centroCusto: centroCustoList });
+    const anoParam = encodeURIComponent(anoList.join(','));
+    const mesParam = encodeURIComponent(mesList.join(','));
     const opParam = encodeURIComponent(operacaoList.join(','));
     const ccParam = encodeURIComponent(centroCustoList.join(','));
-    data = await Api.get(`/api/dashboard?ano=${ano}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${opParam}&centroCusto=${ccParam}`);
+    data = await Api.get(`/api/dashboard?ano=${anoParam}&mes=${mesParam}&groupBy=${groupBy}&drillBy=${drillBy}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${opParam}&centroCusto=${ccParam}`);
     expanded.clear();
     if (data.drillBy !== 'none') data.grupos.forEach(g => expanded.add(g.chave)); // drill inicia sempre aberto
     drawKpis();
     drawGroupTable();
     drawCharts();
 
-    // Filtros relativos: cada combo só oferece valores compatíveis com o que
-    // já está selecionado nos outros três. Se a seleção atual não existe mais
-    // no novo conjunto (ficou incompatível), ela é descartada e recarregamos.
+    // Filtros relativos: Responsável/Gerente/Operação/Centro de Custo só
+    // oferecem valores compatíveis com o que já está selecionado nos outros
+    // (incluindo Ano/Mês, que entram na base antes desse cálculo — ver
+    // Store.getDashboard). Ano/Mês em si não são recalculados: são sempre
+    // o intervalo cheio (todo ano cadastrado, os 12 meses do calendário).
     syncingFilters = true;
     const fo = data.filterOptions || { responsaveis: [], gerentes: [], operacoes: [], centrosCusto: [] };
     const respReset = repopulateFilterSelect(document.getElementById('d-resp'), fo.responsaveis, 'Todos');
@@ -397,8 +430,11 @@ async function renderDashboardPage(container, meta) {
 
   function drawKpis() {
     const t = data.totals;
-    const ano = parseInt(document.getElementById('d-ano').value, 10);
-    const pesos = pesosDiasFaturamentoPorMes(ano);
+    // Com Ano opcional/seleção múltipla, `porMes` pode ter meses de vários
+    // anos (ou de todos os anos, sem filtro) — os pesos usam os anos que
+    // realmente aparecem no resultado, não um "Ano" único de um <select>.
+    const anosPresentes = [...new Set((data.porMes || []).map(m => Number((m.mes || '').slice(0, 4))))].filter(Boolean);
+    const pesos = pesosDiasFaturamentoPorMes(anosPresentes.length ? anosPresentes : [new Date().getFullYear()]);
     const receitaStats = monthlyStats(data.porMes, 'receita', pesos);
     const hcStats = monthlyStats(data.porMes, 'hc', pesos);
     const fteStats = monthlyStats(data.porMes, 'fte', pesos);
@@ -502,13 +538,12 @@ async function renderDashboardPage(container, meta) {
     tbl.appendChild(tbody);
   }
 
-  document.getElementById('d-ano').onchange = load;
   document.getElementById('d-group').onchange = load;
   document.getElementById('d-drill').onchange = load;
   document.getElementById('d-resp').onchange = () => { if (!syncingFilters) load(); };
   document.getElementById('d-gerente').onchange = () => { if (!syncingFilters) load(); };
-  // Operação e Centro de Custo (multi-combobox) já disparam load() pelo
-  // próprio onChange passado a createMultiCombobox, acima.
+  // Ano, Mês, Operação e Centro de Custo (multi-combobox) já disparam load()
+  // pelo próprio onChange passado a createMultiCombobox, acima.
 
   await load();
 }

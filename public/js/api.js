@@ -32,11 +32,14 @@ const Api = {
       } else if (path === '/api/resultado') {
         result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, centroCusto: q.centroCusto, apenasComCusto: q.apenasComCusto !== '0' });
       } else if (path === '/api/dashboard') {
-        // Operação e Centro de Custo são seleção múltipla nesta tela — vêm
-        // como lista separada por vírgula (ver renderDashboardPage/pages.js).
+        // Ano, Mês, Operação e Centro de Custo são seleção múltipla nesta
+        // tela — vêm como lista separada por vírgula (ver renderDashboardPage
+        // /pages.js). Ano e Mês podem vir vazios (filtro opcional = "Todos").
+        const anoList = q.ano ? q.ano.split(',').filter(Boolean) : [];
+        const mesList = q.mes ? q.mes.split(',').filter(Boolean) : [];
         const operacaoList = q.operacao ? q.operacao.split(',').filter(Boolean) : [];
         const centroCustoList = q.centroCusto ? q.centroCusto.split(',').filter(Boolean) : [];
-        result = Store.getDashboard({ ano: parseInt(q.ano, 10), groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: operacaoList, centroCusto: centroCustoList });
+        result = Store.getDashboard({ ano: anoList, mes: mesList, groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: operacaoList, centroCusto: centroCustoList });
       } else {
         return Promise.reject(new Error('rota desconhecida: ' + path));
       }
