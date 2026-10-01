@@ -181,6 +181,14 @@ function roundedTopRectPath(x, y, w, h, r) {
   return `M${x},${y + h} L${x},${y + rr} Q${x},${y} ${x + rr},${y} L${x + w - rr},${y} Q${x + w},${y} ${x + w},${y + rr} L${x + w},${y + h} Z`;
 }
 
+// Número "cheio", sem separador de milhar (nem o ponto do pt-BR, nem a
+// abreviação "mil"/"mi" de formatAxisValue) — usado nos rótulos de dado das
+// colunas empilhadas, a pedido: cada categoria e o total devem aparecer com
+// o valor exato, sem agrupamento.
+function formatPlainNumber(v) {
+  return String(Math.round(v));
+}
+
 // Colunas empilhadas mensais — usado pela visão Headcount x FTE Financeiro
 // x Mês do Painel Gerencial (cada mês soma os valores de `series` numa
 // única coluna, com legenda abaixo do eixo X).
@@ -202,6 +210,7 @@ function renderStackedBarChart(container, { title, series, data, format, valueLa
   const yLabels = ticks.map(t => `<text x="${padL - 8}" y="${(yOf(t) + 3).toFixed(1)}" class="chart-axis-label" text-anchor="end">${formatAxisValue(t, format)}</text>`).join('');
 
   let barsSvg = '';
+  let segLabelsSvg = '';
   let totalLabelsSvg = '';
   data.forEach((d, i) => {
     const x = padL + i * slot + (slot - barW) / 2;
@@ -217,11 +226,16 @@ function renderStackedBarChart(container, { title, series, data, format, valueLa
           ? roundedTopRectPath(x, y1, barW, h, 4)
           : `M${x},${y0} L${x},${y1} L${x + barW},${y1} L${x + barW},${y0} Z`;
         barsSvg += `<path d="${path}" fill="${ser.color}" data-mes="${d.mes}" data-valor="${val}" data-label="${escapeHtml(ser.label)}" class="chart-stack-seg"></path>`;
+        // Rótulo de cada categoria no centro do próprio segmento, sempre —
+        // mesmo quando o segmento é fino, melhor um número apertado do que
+        // faltando a categoria.
+        const cy = (y0 + y1) / 2;
+        segLabelsSvg += `<text x="${(x + barW / 2).toFixed(1)}" y="${(cy + 3).toFixed(1)}" text-anchor="middle" class="chart-stack-label">${formatPlainNumber(val)}</text>`;
       }
       cumulative += val;
     });
     const totalY = yOf(cumulative);
-    totalLabelsSvg += `<text x="${(x + barW / 2).toFixed(1)}" y="${Math.max(11, totalY - 8).toFixed(1)}" text-anchor="middle" class="chart-data-label">${formatAxisValue(cumulative, format)}</text>`;
+    totalLabelsSvg += `<text x="${(x + barW / 2).toFixed(1)}" y="${Math.max(11, totalY - 8).toFixed(1)}" text-anchor="middle" class="chart-data-label">${formatPlainNumber(cumulative)}</text>`;
   });
 
   const xLabels = data.map((d, i) => {
@@ -243,6 +257,7 @@ function renderStackedBarChart(container, { title, series, data, format, valueLa
         <line x1="${padL}" y1="${(padT + plotH).toFixed(1)}" x2="${W - padR}" y2="${(padT + plotH).toFixed(1)}" class="chart-baseline" />
         ${yLabels}
         ${barsSvg}
+        ${segLabelsSvg}
         ${totalLabelsSvg}
         ${xLabels}
         ${legendSvg}
