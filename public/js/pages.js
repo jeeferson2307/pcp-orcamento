@@ -172,6 +172,99 @@ function renderLineChart(container, { title, color, data, valueLabel, format }) 
   });
 }
 
+// Retângulo com cantos arredondados só no topo — usado pelo segmento de
+// cima de cada coluna empilhada (o(s) de baixo ficam retos, pra "encaixar"
+// visualmente sem sobra entre os segmentos).
+function roundedTopRectPath(x, y, w, h, r) {
+  if (h <= 0) return '';
+  const rr = Math.min(r, w / 2, h);
+  return `M${x},${y + h} L${x},${y + rr} Q${x},${y} ${x + rr},${y} L${x + w - rr},${y} Q${x + w},${y} ${x + w},${y + rr} L${x + w},${y + h} Z`;
+}
+
+// Colunas empilhadas mensais — usado pela visão Headcount x FTE Financeiro
+// x Mês do Painel Gerencial (cada mês soma os valores de `series` numa
+// única coluna, com legenda abaixo do eixo X).
+function renderStackedBarChart(container, { title, series, data, format, valueLabel }) {
+  const W = 640, H = 300;
+  const padL = 60, padR = 16, padT = 28, padB = 58;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+  const totals = data.map(d => series.reduce((s, ser) => s + Math.max(0, d[ser.key] || 0), 0));
+  const maxVal = niceCeil(Math.max(1, ...totals));
+  const n = data.length || 1;
+  const slot = plotW / n;
+  const barW = Math.min(32, slot * 0.6);
+
+  const yOf = (v) => padT + plotH * (1 - v / maxVal);
+  const ticks = [0, maxVal / 2, maxVal];
+
+  const gridlines = ticks.map(t => `<line x1="${padL}" y1="${yOf(t).toFixed(1)}" x2="${W - padR}" y2="${yOf(t).toFixed(1)}" class="chart-gridline" />`).join('');
+  const yLabels = ticks.map(t => `<text x="${padL - 8}" y="${(yOf(t) + 3).toFixed(1)}" class="chart-axis-label" text-anchor="end">${formatAxisValue(t, format)}</text>`).join('');
+
+  let barsSvg = '';
+  let totalLabelsSvg = '';
+  data.forEach((d, i) => {
+    const x = padL + i * slot + (slot - barW) / 2;
+    let cumulative = 0;
+    series.forEach((ser, si) => {
+      const val = Math.max(0, d[ser.key] || 0);
+      const y0 = yOf(cumulative);
+      const y1 = yOf(cumulative + val);
+      const h = Math.max(0, y0 - y1);
+      if (h > 0) {
+        const isTop = si === series.length - 1;
+        const path = isTop
+          ? roundedTopRectPath(x, y1, barW, h, 4)
+          : `M${x},${y0} L${x},${y1} L${x + barW},${y1} L${x + barW},${y0} Z`;
+        barsSvg += `<path d="${path}" fill="${ser.color}" data-mes="${d.mes}" data-valor="${val}" data-label="${escapeHtml(ser.label)}" class="chart-stack-seg"></path>`;
+      }
+      cumulative += val;
+    });
+    const totalY = yOf(cumulative);
+    totalLabelsSvg += `<text x="${(x + barW / 2).toFixed(1)}" y="${Math.max(11, totalY - 8).toFixed(1)}" text-anchor="middle" class="chart-data-label">${formatAxisValue(cumulative, format)}</text>`;
+  });
+
+  const xLabels = data.map((d, i) => {
+    const x = padL + i * slot + slot / 2;
+    return `<text x="${x.toFixed(1)}" y="${(padT + plotH + 18).toFixed(1)}" class="chart-axis-label" text-anchor="middle">${Fmt.mes(d.mes)}</text>`;
+  }).join('');
+
+  const legendSvg = series.map((ser, i) => {
+    const lx = padL + i * 170;
+    const ly = H - 14;
+    return `<rect x="${lx}" y="${ly}" width="10" height="10" rx="2" fill="${ser.color}"></rect><text x="${(lx + 16).toFixed(1)}" y="${(ly + 9).toFixed(1)}" class="chart-axis-label">${escapeHtml(ser.label)}</text>`;
+  }).join('');
+
+  container.innerHTML = `
+    <div class="chart-title">${escapeHtml(title)}</div>
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">
+        ${gridlines}
+        <line x1="${padL}" y1="${(padT + plotH).toFixed(1)}" x2="${W - padR}" y2="${(padT + plotH).toFixed(1)}" class="chart-baseline" />
+        ${yLabels}
+        ${barsSvg}
+        ${totalLabelsSvg}
+        ${xLabels}
+        ${legendSvg}
+      </svg>
+      <div class="chart-tooltip" style="display:none"></div>
+    </div>
+  `;
+
+  const tooltip = container.querySelector('.chart-tooltip');
+  const wrap = container.querySelector('.chart-wrap');
+  container.querySelectorAll('.chart-stack-seg').forEach(el => {
+    el.addEventListener('mouseenter', () => { tooltip.style.display = 'block'; });
+    el.addEventListener('mousemove', (e) => {
+      const rect = wrap.getBoundingClientRect();
+      tooltip.textContent = `${Fmt.mes(el.dataset.mes)} · ${el.dataset.label}: ${valueLabel(Number(el.dataset.valor))}`;
+      tooltip.style.left = (e.clientX - rect.left + 12) + 'px';
+      tooltip.style.top = (e.clientY - rect.top - 28) + 'px';
+    });
+    el.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  });
+}
+
 // Últimos filtros aplicados no Painel Gerencial — em memória, no nível do
 // módulo (não dentro de renderDashboardPage), para sobreviver a navegar para
 // outra página e voltar. Atualizado a cada load() bem-sucedido.
@@ -311,10 +404,18 @@ async function renderDashboardPage(container, meta) {
 
   function drawCharts() {
     const porMes = data.porMes || [];
-    renderLineChart(document.getElementById('chart-hc'), {
-      title: 'Headcount x Mês', color: 'var(--chart-1)', format: 'number',
-      data: porMes.map(m => ({ mes: m.mes, valor: m.hc })),
+    // Colunas empilhadas: 1º nível = Headcount (HC necessário pra produção,
+    // já considerando ABS/TO/Férias/Folga embutidos no cálculo de HC
+    // Dimensionado); 2º nível = FTE Financeiro − Headcount (a parte extra de
+    // Contratações/Treinamento) — a coluna inteira soma o FTE Financeiro.
+    renderStackedBarChart(document.getElementById('chart-hc'), {
+      title: 'Headcount x FTE Financeiro x Mês', format: 'number',
       valueLabel: v => Fmt.display(v, 'number'),
+      data: porMes.map(m => ({ mes: m.mes, hc: m.hc || 0, fteExtra: Math.max(0, (m.fte || 0) - (m.hc || 0)) })),
+      series: [
+        { key: 'hc', color: 'var(--chart-1)', label: 'Headcount' },
+        { key: 'fteExtra', color: 'var(--chart-4)', label: 'FTE Financeiro − Headcount' },
+      ],
     });
     renderLineChart(document.getElementById('chart-volume'), {
       title: 'Volume (Chamadas) x Mês', color: 'var(--chart-2)', format: 'number',

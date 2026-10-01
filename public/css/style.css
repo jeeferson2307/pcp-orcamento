@@ -394,6 +394,8 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
 .chart-axis-label { font-size: 10px; fill: var(--text-faint); }
 .chart-data-label { font-size: 10px; font-weight: 600; fill: var(--text); }
 .chart-dot { cursor: pointer; }
+.chart-stack-seg { cursor: pointer; }
+.chart-stack-seg:hover { opacity: .85; }
 .chart-tooltip {
   position: absolute; pointer-events: none; background: var(--sidebar-bg); color: #fff;
   padding: var(--sp-1) var(--sp-3); border-radius: var(--radius-sm); font-size: 11.5px;
