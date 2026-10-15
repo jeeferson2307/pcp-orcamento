@@ -566,19 +566,31 @@ const ANALITICO_COLUMNS = [
   { key: 'operacao', label: 'Operação', format: 'text' },
   { key: 'site', label: 'Site / Filial', format: 'text' },
   { key: 'cod_empresa', label: 'Cód. Empresa', format: 'text' },
+  { key: 'nom_empresa', label: 'Nome Empresa', format: 'text' },
   { key: 'cod_filial', label: 'Cód. Filial', format: 'text' },
   { key: 'cod_cc', label: 'Cód. Centro de Custo', format: 'text' },
   { key: 'desc_centro_custo', label: 'Descrição Centro de Custo', format: 'text' },
   { key: 'faturamento', label: 'Tipo Faturamento', format: 'text' },
+  { key: 'tipo_escala', label: 'Tipo Escala', format: 'text' },
   { key: '_tipo_dimens', label: 'Tipo Dimensionamento', format: 'text' },
+  { key: 'volume_premissa', label: 'Volume (Premissa)', format: 'number' },
+  { key: 'pct_distribuicao_volume', label: '% Distribuição Volume', format: 'percent' },
   { key: '_volume_revisado', label: 'Volume Revisado', format: 'number' },
+  { key: 'pausa', label: 'Pausa', format: 'percent' },
+  { key: 'ocupacao', label: 'Ocupação', format: 'percent' },
   { key: '_tma', label: 'TMA (seg)', format: 'decimal1' },
+  { key: 'ajuste_volume', label: 'Ajuste Volume Aplicado', format: 'percent' },
+  { key: 'ajuste_tma', label: 'Ajuste TMA Aplicado', format: 'percent' },
+  { key: 'ajuste_pausa', label: 'Ajuste Pausa Aplicado', format: 'percent' },
   { key: 'posicao_contratada', label: 'HC Contratado', format: 'number' },
+  { key: 'pct_distribuicao_hc', label: '% Distribuição HC', format: 'percent' },
   { key: '_hc_revisado', label: 'HC Revisado', format: 'number' },
   { key: 'hc_dim', label: 'HC Dimensionado', format: 'number' },
   { key: 'hc_dim_jovem', label: 'HC Dim. + Jovem Aprendiz', format: 'number' },
   { key: 'hc_custo_jovem', label: 'Qtd. Jovem Aprendiz', format: 'number' },
   { key: 'hc_treinamento', label: 'HC Treinamento (Contratações)', format: 'number' },
+  { key: 'reposicoes', label: 'Reposições (Turnover)', format: 'number' },
+  { key: 'contratacoes_adicionais', label: 'Contratações Adicionais', format: 'number' },
   { key: 'spam_supervisao', label: 'Spam Supervisão', format: 'number' },
   { key: 'supervisor', label: 'Supervisores', format: 'number' },
   { key: 'fte_financeiro', label: 'FTE Financeiro', format: 'number' },
@@ -597,6 +609,11 @@ const ANALITICO_COLUMNS = [
   { key: 'cprb_pct', label: 'CPRB %', format: 'percent' },
   { key: 'reajuste_aplicado', label: 'Reajuste Aplicado', format: 'text' },
   { key: 'reajuste_pct', label: 'Reajuste %', format: 'percent' },
+  { key: 'unitario_g3', label: 'Unitário G3', format: 'currency' },
+  { key: 'unitario_reajustado', label: 'Unitário Reajustado', format: 'currency' },
+  { key: 'abandono', label: 'Abandono', format: 'percent' },
+  { key: 'shortcalls', label: 'Shortcalls', format: 'percent' },
+  { key: 'receita_bodyshop', label: 'Receita Bodyshop', format: 'currency' },
   { key: 'receita_bruta', label: 'Receita Bruta', format: 'currency' },
 ];
 
@@ -604,14 +621,27 @@ function analiticoRowToDisplay(r) {
   return ANALITICO_COLUMNS.map(c => c.format === 'mes' ? Fmt.mes(r[c.key]) : Fmt.display(r[c.key], c.format));
 }
 
+// Últimos filtros aplicados no Analítico — mesmo padrão de persistência do
+// Painel Gerencial (dashboardFilterState), pra sobreviver a navegar para
+// outra página e voltar.
+const analiticoFilterState = {
+  responsavel: '', gerente: '',
+  ano: [], mes: [], operacao: [], centroCusto: [], // seleção múltipla — vazio = "Todos" (default)
+};
+
 async function renderAnaliticoPage(container, meta) {
+  const fs = analiticoFilterState;
+
   container.innerHTML = `
-    <div class="toolbar">
-      <label>Ano <select id="a-ano">${yearOptions(meta)}</select></label>
+    <div class="filter-grid">
+      <label>Ano <span id="a-ano-slot"></span></label>
+      <label>Mês <span id="a-mes-slot"></span></label>
       <label>Responsável PCP <select id="a-resp"><option value="">Todos</option>${(meta.responsaveis||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
       <label>Gerente <select id="a-gerente"><option value="">Todos</option>${(meta.gerentes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
-      <label>Operação <select id="a-operacao"><option value="">Todas</option>${(meta.operacoes||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
-      <label>Descrição Centro de Custo <select id="a-cc"><option value="">Todas</option>${(meta.centrosCusto||[]).map(r=>`<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}</select></label>
+    </div>
+    <div class="filter-grid">
+      <label>Operação <span id="a-operacao-slot"></span></label>
+      <label>Descrição Centro de Custo <span id="a-cc-slot"></span></label>
     </div>
     <div class="toolbar">
       <input type="text" id="a-busca" class="op-search" placeholder="Buscar em qualquer coluna…">
@@ -623,14 +653,40 @@ async function renderAnaliticoPage(container, meta) {
   `;
   applyIcons(container);
 
-  // Ano, Operação e Descrição Centro de Custo viram combobox (select
-  // pesquisável) — Responsável PCP e Gerente continuam <select> simples.
-  enhanceCombobox(document.getElementById('a-ano'));
-  enhanceCombobox(document.getElementById('a-operacao'));
-  enhanceCombobox(document.getElementById('a-cc'));
+  document.getElementById('a-resp').value = fs.responsavel;
+  document.getElementById('a-gerente').value = fs.gerente;
 
   let rows = [];
   let filtered = [];
+
+  // true enquanto repopulamos os filtros por código (nenhum aqui hoje, mas
+  // mantido pelo mesmo motivo do Painel Gerencial: evitar load() recursivo
+  // disparado pelo próprio onChange dos multi-combobox ao restaurar valores).
+  let syncingFilters = false;
+
+  // Ano, Mês, Operação e Descrição Centro de Custo replicam o mesmo padrão de
+  // multi-combobox (seleção múltipla, opcional — vazio = "Todos") do Painel
+  // Gerencial. Responsável PCP e Gerente continuam <select> simples.
+  const anoMulti = createMultiCombobox(document.getElementById('a-ano-slot'), {
+    options: dynamicYearList(meta), allLabel: 'Todos',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  anoMulti.setValues(fs.ano);
+  const mesMulti = createMultiCombobox(document.getElementById('a-mes-slot'), {
+    options: MES_NOMES, allLabel: 'Todos',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  mesMulti.setValues(fs.mes);
+  const opMulti = createMultiCombobox(document.getElementById('a-operacao-slot'), {
+    options: meta.operacoes || [], allLabel: 'Todas',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  opMulti.setValues(fs.operacao);
+  const ccMulti = createMultiCombobox(document.getElementById('a-cc-slot'), {
+    options: meta.centrosCusto || [], allLabel: 'Todas',
+    onChange: () => { if (!syncingFilters) load(); },
+  });
+  ccMulti.setValues(fs.centroCusto);
 
   function draw() {
     const busca = document.getElementById('a-busca').value.trim().toLowerCase();
@@ -653,28 +709,33 @@ async function renderAnaliticoPage(container, meta) {
   }
 
   async function load() {
-    const ano = document.getElementById('a-ano').value;
     const responsavel = document.getElementById('a-resp').value;
     const gerente = document.getElementById('a-gerente').value;
-    const operacao = document.getElementById('a-operacao').value;
-    const centroCusto = document.getElementById('a-cc').value;
-    const resp = await Api.get(`/api/resultado?ano=${ano}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${encodeURIComponent(operacao)}&centroCusto=${encodeURIComponent(centroCusto)}`);
+    const anoList = anoMulti.getValues();
+    const mesList = mesMulti.getValues();
+    const operacaoList = opMulti.getValues();
+    const centroCustoList = ccMulti.getValues();
+    Object.assign(fs, { responsavel, gerente, ano: anoList, mes: mesList, operacao: operacaoList, centroCusto: centroCustoList });
+    const anoParam = encodeURIComponent(anoList.join(','));
+    const mesParam = encodeURIComponent(mesList.join(','));
+    const opParam = encodeURIComponent(operacaoList.join(','));
+    const ccParam = encodeURIComponent(centroCustoList.join(','));
+    const resp = await Api.get(`/api/resultado?ano=${anoParam}&mes=${mesParam}&responsavel=${encodeURIComponent(responsavel)}&gerente=${encodeURIComponent(gerente)}&operacao=${opParam}&centroCusto=${ccParam}`);
     rows = resp.rows;
     draw();
   }
 
   function exportar(formato) {
     const aaData = [ANALITICO_COLUMNS.map(c => c.label), ...filtered.map(analiticoRowToDisplay)];
-    const ano = document.getElementById('a-ano').value;
-    if (formato === 'csv') ExportUtil.downloadCsv(`analitico_${ano}.csv`, aaData);
-    else ExportUtil.downloadXlsx(`analitico_${ano}.xlsx`, aaData, 'Analítico');
+    const anoLabel = fs.ano.length ? fs.ano.join('-') : 'todos';
+    if (formato === 'csv') ExportUtil.downloadCsv(`analitico_${anoLabel}.csv`, aaData);
+    else ExportUtil.downloadXlsx(`analitico_${anoLabel}.xlsx`, aaData, 'Analítico');
   }
 
-  document.getElementById('a-ano').onchange = load;
-  document.getElementById('a-resp').onchange = load;
-  document.getElementById('a-gerente').onchange = load;
-  document.getElementById('a-operacao').onchange = load;
-  document.getElementById('a-cc').onchange = load;
+  document.getElementById('a-resp').onchange = () => { if (!syncingFilters) load(); };
+  document.getElementById('a-gerente').onchange = () => { if (!syncingFilters) load(); };
+  // Ano, Mês, Operação e Centro de Custo (multi-combobox) já disparam load()
+  // pelo próprio onChange passado a createMultiCombobox, acima.
   document.getElementById('a-busca').oninput = draw;
   document.getElementById('btn-export-csv').onclick = () => exportar('csv');
   document.getElementById('btn-export-xlsx').onclick = () => exportar('xlsx');

@@ -192,16 +192,34 @@ const Store = {
     return { ok: true, atualizado_em: agora };
   },
 
-  getResultado({ ano, responsavel, gerente, operacao, centroCusto, apenasComCusto }) {
-    // buildFinal devolve real (todos os anos com dado histórico) + projetado
-    // (até o ano pedido) — precisa filtrar aqui pelo ano pedido, senão meses
-    // de anos anteriores (reais) vazam para a visão do Analítico.
-    let rows = buildFinal(ano, { responsavelPcp: responsavel || null, apenasComCusto: apenasComCusto !== false });
-    rows = rows.filter(r => r.referencia && r.referencia.startsWith(String(ano)));
+  // Analítico: mesmo padrão de filtros opcionais/seleção múltipla do Painel
+  // Gerencial (ver getDashboard, abaixo) — Ano e Mês em lista vazia = "Todos".
+  getResultado({ ano, mes, responsavel, gerente, operacao, centroCusto, apenasComCusto }) {
+    const operacaoList = Array.isArray(operacao) ? operacao.filter(Boolean) : (operacao ? [operacao] : []);
+    const centroCustoList = Array.isArray(centroCusto) ? centroCusto.filter(Boolean) : (centroCusto ? [centroCusto] : []);
+    const anoList = (Array.isArray(ano) ? ano : (ano ? [ano] : [])).map(Number).filter(a => !Number.isNaN(a));
+    const mesNomeParaNumero = (nome) => { const i = MES_NOMES.indexOf(nome); return i >= 0 ? String(i + 1).padStart(2, '0') : null; };
+    const mesList = (Array.isArray(mes) ? mes : (mes ? [mes] : [])).map(mesNomeParaNumero).filter(Boolean);
+
+    // Sem nenhum Ano selecionado, projeta até o "próximo ano" dinâmico
+    // (mesmo critério de getDashboard); com um ou mais anos selecionados,
+    // projeta até o maior deles.
+    let anoProjetar;
+    if (anoList.length) {
+      anoProjetar = Math.max(...anoList);
+    } else {
+      const anosDimens = DB.prepare('SELECT referencia FROM tb_premissas_dimens WHERE referencia IS NOT NULL').all()
+        .map(r => Number(r.referencia.slice(0, 4))).filter(a => !Number.isNaN(a));
+      anoProjetar = anosDimens.length ? Math.max(...anosDimens) + 1 : new Date().getFullYear();
+    }
+
+    let rows = buildFinal(anoProjetar, { responsavelPcp: responsavel || null, apenasComCusto: apenasComCusto !== false });
+    rows = rows.filter(r => r.referencia && (!anoList.length || anoList.includes(Number(r.referencia.slice(0, 4)))));
+    rows = rows.filter(r => r.referencia && (!mesList.length || mesList.includes(r.referencia.slice(5, 7))));
     if (gerente) rows = rows.filter(r => r.gerente === gerente);
-    if (operacao) rows = rows.filter(r => r.operacao === operacao);
-    if (centroCusto) rows = rows.filter(r => r.desc_centro_custo === centroCusto);
-    return { ano, count: rows.length, rows };
+    if (operacaoList.length) rows = rows.filter(r => operacaoList.includes(r.operacao));
+    if (centroCustoList.length) rows = rows.filter(r => centroCustoList.includes(r.desc_centro_custo));
+    return { ano: anoList, count: rows.length, rows };
   },
 
   // Painel Gerencial: KPIs + tabela agrupável com drill-down por um campo

@@ -30,7 +30,15 @@ const Api = {
         if (method === 'GET') result = Store.getAnotacao('geral');
         else if (method === 'PUT') result = Store.setAnotacao('geral', body.texto);
       } else if (path === '/api/resultado') {
-        result = Store.getResultado({ ano: parseInt(q.ano, 10), responsavel: q.responsavel, gerente: q.gerente, operacao: q.operacao, centroCusto: q.centroCusto, apenasComCusto: q.apenasComCusto !== '0' });
+        // Ano, Mês, Operação e Descrição Centro de Custo são seleção múltipla
+        // nesta tela (mesmo padrão do Painel Gerencial — ver /api/dashboard) —
+        // vêm como lista separada por vírgula; Ano e Mês podem vir vazios
+        // (filtro opcional = "Todos").
+        const anoList = q.ano ? q.ano.split(',').filter(Boolean) : [];
+        const mesList = q.mes ? q.mes.split(',').filter(Boolean) : [];
+        const operacaoList = q.operacao ? q.operacao.split(',').filter(Boolean) : [];
+        const centroCustoList = q.centroCusto ? q.centroCusto.split(',').filter(Boolean) : [];
+        result = Store.getResultado({ ano: anoList, mes: mesList, responsavel: q.responsavel, gerente: q.gerente, operacao: operacaoList, centroCusto: centroCustoList, apenasComCusto: q.apenasComCusto !== '0' });
       } else if (path === '/api/dashboard') {
         // Ano, Mês, Operação e Centro de Custo são seleção múltipla nesta
         // tela — vêm como lista separada por vírgula (ver renderDashboardPage

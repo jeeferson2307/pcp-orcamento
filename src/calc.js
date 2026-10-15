@@ -99,7 +99,9 @@ function buildForecast(ano) {
     // efetivamente produtivo (desconta a Pausa cadastrada em Dimensionamento).
     const hcEfetivo = r.hc_dimensionado ? r.hc_dimensionado * (1 - (r.pausa ?? 0)) : 0;
     const minutagem = (!hcEfetivo) ? null : (r.volume * r.tma) / 60 / hcEfetivo;
-    return { ...r, dias_faturamento: diasFaturamento, minutagem, tipo_linha: 'REAL' };
+    // Ajuste de Premissas só vale pra meses projetados (ver seção 2 do
+    // Glossário) — mês real nunca tem ajuste aplicado.
+    return { ...r, dias_faturamento: diasFaturamento, minutagem, tipo_linha: 'REAL', ajuste_volume: null, ajuste_tma: null, ajuste_pausa: null };
   });
 
   const fimAno = `${anoFim}-12-01`;
@@ -157,6 +159,12 @@ function buildForecast(ano) {
         hc_dimensionado: hcPrj,
         hc_contratado: hcContratadoBase,
         tipo_linha: 'PROJETADO',
+        // % de Ajuste de Premissas efetivamente aplicado neste mês/operação
+        // (null quando a operação não tem nenhum Ajuste cadastrado pra esse
+        // mês) — exposto no Analítico pra auditar o que foi ajustado.
+        ajuste_volume: ajuste?.ajuste_volume ?? null,
+        ajuste_tma: ajuste?.ajuste_tma ?? null,
+        ajuste_pausa: ajuste?.ajuste_pausa ?? null,
       });
     }
   }
@@ -244,6 +252,11 @@ function buildComplete(ano) {
       const hcRevisado = (isHcBased && f.hc_contratado > 0)
         ? Math.round(f.hc_contratado * pcrtHcTempoLogadoPosicao)
         : Math.round((f.hc_contratado > 0 ? f.hc_contratado : f.hc_dimensionado) * pcrtHc);
+      // % de Distribuição de HC efetivamente usado no cálculo acima (igual
+      // pcrtHc na maioria dos casos; no caso Tempo Logado/Posição com HC
+      // Contratado, é o pcrtHcTempoLogadoPosicao — já com o fallback de
+      // "sem Distribuição cadastrada" aplicado). Exposto no Analítico.
+      const pctDistribuicaoHcAplicado = (isHcBased && f.hc_contratado > 0) ? pcrtHcTempoLogadoPosicao : pcrtHc;
 
       const abs = tbAbs.get(kDist)?.valor ?? 0;
       const to_ = tbTo.get(kDist)?.valor ?? 0;
@@ -295,11 +308,13 @@ function buildComplete(ano) {
         tipologia: 'ORÇADO',
         cod_empresa: fil.cod_empresa,
         cod_filial: fil.cod_filial,
+        nom_empresa: fil.nom_empresa ?? null,
         chave_cc: chaveCc,
         cod_cc: cadOp.cod_centro_de_custo ?? null,
         desc_centro_custo: cadOp.desc_centro_de_custo ?? null,
         eos: '',
         faturamento: tipoFat ?? null,
+        tipo_escala: cadOp.tipo_escala ?? null,
         posicao_contratada: f.hc_contratado,
         ocupacao_garantia: ocupacaoGarantia,
         cliente: cadOp.cliente ?? null,
@@ -326,14 +341,29 @@ function buildComplete(ano) {
         spam_supervisao: spam,
         supervisor: qtdSupervisores,
         hc_treinamento: totalContratacoes,
+        reposicoes,
+        contratacoes_adicionais: contratacoesAdicionais,
         evasao,
         pa_hc_infra: paHcInfra,
         taxa_ocup_pa_infra: txOcupPaInfra,
         receita_bruta: receita,
+        receita_bodyshop: receitaBodyshop,
+        unitario_g3: unit.unitario_g3 ?? null,
+        unitario_reajustado: unitarioReajustado,
+        abandono: unit.abandono ?? null,
+        shortcalls: unit.shortcalls ?? null,
         cprb_aplicado: (cprb.valor ?? 0) > 0 ? 'SIM' : 'NÃO',
         cprb_pct: cprb.valor ?? 0,
         reajuste_aplicado: (reajuste.valor ?? 0) > 0 ? 'SIM' : 'NÃO',
         reajuste_pct: reajuste.valor ?? 0,
+        volume_premissa: f.volume ?? null,
+        pausa: f.pausa ?? null,
+        ocupacao: f.ocupacao ?? null,
+        pct_distribuicao_volume: pcrtVolume,
+        pct_distribuicao_hc: pctDistribuicaoHcAplicado,
+        ajuste_volume: f.ajuste_volume ?? null,
+        ajuste_tma: f.ajuste_tma ?? null,
+        ajuste_pausa: f.ajuste_pausa ?? null,
         // campos auxiliares (não fazem parte do layout final, mas úteis p/ debug/filtro)
         _tipo_dimens: f.tipo_dimens,
         _tipo_linha: f.tipo_linha,
