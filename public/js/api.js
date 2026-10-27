@@ -48,6 +48,28 @@ const Api = {
         const operacaoList = q.operacao ? q.operacao.split(',').filter(Boolean) : [];
         const centroCustoList = q.centroCusto ? q.centroCusto.split(',').filter(Boolean) : [];
         result = Store.getDashboard({ ano: anoList, mes: mesList, groupBy: q.groupBy, drillBy: q.drillBy, responsavel: q.responsavel, gerente: q.gerente, operacao: operacaoList, centroCusto: centroCustoList });
+      } else if (path === '/api/contexto') {
+        // Quem mexeu / quem pediu / por que - carimbado em toda alteracao
+        // a partir daqui, ate o usuario trocar o contexto.
+        if (method === 'GET') result = Store.getContexto();
+        else if (method === 'PUT') result = Store.setContexto(body);
+      } else if (path === '/api/versoes') {
+        if (method === 'GET') result = Store.getVersoes();
+        else if (method === 'POST') result = Store.postVersao(body);
+        else if (method === 'DELETE') result = Store.deleteVersao(body);
+      } else if (path === '/api/versoes/restaurar') {
+        if (method === 'POST') result = Store.restaurarVersao(body);
+      } else if (path === '/api/historico') {
+        result = Store.getHistorico({
+          versaoId: q.versao || null, operacao: q.operacao || null, tabela: q.tabela || null,
+          solicitante: q.solicitante || null, busca: q.busca || null,
+          limite: q.limite ? Number(q.limite) : 500,
+        });
+      } else if (path === '/api/comparativo') {
+        result = Store.getComparativo({
+          versaoA: q.a, versaoB: q.b, groupBy: q.groupBy,
+          recalcular: q.recalcular === '1', mes: q.mes || null,
+        });
       } else {
         return Promise.reject(new Error('rota desconhecida: ' + path));
       }

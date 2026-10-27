@@ -162,4 +162,66 @@ CREATE TABLE IF NOT EXISTS tb_anotacoes (
   texto TEXT,
   atualizado_em TEXT
 );
+
+-- ============================================================
+-- Versionamento: log de alteracoes + marcos de versao.
+-- A unidade versionada e a CELULA, nao o banco: uma versao e so um corte no
+-- log (tb_versoes.ultima_alteracao_id). Ver public/js/versionamento.js.
+-- ============================================================
+
+-- Configuracao textual do app (autor/solicitante/motivo correntes).
+-- tb_parametros so guarda REAL, por isso esta tabela separada.
+CREATE TABLE IF NOT EXISTS tb_config (
+  chave TEXT PRIMARY KEY,
+  texto TEXT
+);
+
+-- Log append-only: uma linha por valor alterado. Nunca se edita nem se apaga
+-- (restaurar uma versao gera novas linhas de reversao, nao remove historico).
+CREATE TABLE IF NOT EXISTS tb_alteracoes (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  momento       TEXT NOT NULL,              -- ISO 8601
+  autor         TEXT,                       -- quem mexeu
+  solicitante   TEXT,                       -- quem pediu
+  motivo        TEXT,                       -- por que
+  acao          TEXT NOT NULL DEFAULT 'alterou',  -- alterou | criou | excluiu
+  tabela        TEXT NOT NULL,
+  chave         TEXT NOT NULL,              -- JSON com a PK completa da linha
+  referencia    TEXT,                       -- dimensoes legiveis, extraidas da
+  nom_operacao  TEXT,                       -- chave, para filtrar o historico
+  unidade       TEXT,                       -- sem desserializar JSON
+  campo         TEXT NOT NULL,
+  valor_antes   REAL, texto_antes  TEXT,    -- campo numerico OU textual
+  valor_depois  REAL, texto_depois TEXT,
+  versao_id     INTEGER                     -- NULL = ainda no rascunho
+);
+CREATE INDEX IF NOT EXISTS ix_alteracoes_versao  ON tb_alteracoes(versao_id);
+CREATE INDEX IF NOT EXISTS ix_alteracoes_celula  ON tb_alteracoes(tabela, chave, campo, id);
+CREATE INDEX IF NOT EXISTS ix_alteracoes_momento ON tb_alteracoes(momento);
+CREATE INDEX IF NOT EXISTS ix_alteracoes_oper    ON tb_alteracoes(nom_operacao);
+
+-- Marco: "a versao 4 e tudo que existia ate a alteracao 1572".
+CREATE TABLE IF NOT EXISTS tb_versoes (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  nome                TEXT NOT NULL,
+  descricao           TEXT,
+  criado_em           TEXT NOT NULL,
+  criado_por          TEXT,
+  ultima_alteracao_id INTEGER NOT NULL DEFAULT 0,
+  ano_projecao        INTEGER,
+  engine_versao       TEXT                  -- versao do motor de calculo
+);
+
+-- Indicadores congelados no momento do corte (grao do Analitico:
+-- mes x operacao x filial). E a verdade de auditoria do que foi publicado.
+CREATE TABLE IF NOT EXISTS tb_versao_resultado (
+  versao_id   INTEGER NOT NULL,
+  referencia  TEXT, operacao TEXT, site TEXT,
+  un_dre      TEXT, diretoria TEXT, cliente TEXT, gerente TEXT,
+  cod_cc      TEXT, desc_centro_custo TEXT,
+  receita_bruta REAL, fte_financeiro REAL, hc_dim REAL, hc_treinamento REAL,
+  volume_revisado REAL, tma REAL, unitario_reajustado REAL, numerador_faturamento REAL,
+  absenteismo REAL, turnover REAL, ferias REAL, folga_extra REAL,
+  PRIMARY KEY (versao_id, referencia, operacao, site)
+);
 `;

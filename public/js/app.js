@@ -18,6 +18,11 @@ const NAV = [
     { id: 'flat:cadastro_operacoes', label: 'Cadastro Operações', icon: 'building-2' },
     { id: 'calendario', label: 'Calendário', icon: 'calendar' },
   ]},
+  { group: 'Versões', items: [
+    { id: 'versoes', label: 'Versões', icon: 'save' },
+    { id: 'comparativo', label: 'Comparativo', icon: 'table' },
+    { id: 'historico', label: 'Histórico de Alterações', icon: 'book-open' },
+  ]},
   { group: 'Glossário/Regras', items: [
     { id: 'glossario', label: 'Glossário/Regras', icon: 'book-open' },
   ]},
@@ -51,7 +56,10 @@ function labelForRoute(route) {
 }
 
 async function router() {
-  const route = (location.hash || '#dashboard').slice(1);
+  // O Comparativo aceita parametros no hash (#comparativo?a=3&b=trabalho),
+  // usados pelo atalho "comparar" da tela de Versoes - a rota em si e so a
+  // parte antes do "?".
+  const route = (location.hash || '#dashboard').slice(1).split('?')[0];
   document.querySelectorAll('.nav-item').forEach(a => a.classList.toggle('active', a.dataset.route === route));
   document.getElementById('page-title').textContent = labelForRoute(route);
   const body = document.getElementById('page-body');
@@ -66,6 +74,9 @@ async function router() {
     if (route === 'dashboard:analitico') return renderAnaliticoPage(body, META);
     if (route === 'calendario') return renderCalendarioPage(body, META);
     if (route === 'glossario') return renderGlossarioPage(body, META);
+    if (route === 'versoes') return renderVersoesPage(body, META);
+    if (route === 'comparativo') return renderComparativoPage(body, META);
+    if (route === 'historico') return renderHistoricoPage(body, META);
     if (route.startsWith('wide:')) return renderWideGrid(body, route.slice(5), META);
     if (route.startsWith('flat:')) return renderFlatGrid(body, route.slice(5), META);
     if (route.startsWith('cadastro:')) {
@@ -84,6 +95,7 @@ async function startApp() {
   document.getElementById('app-root').style.display = '';
   buildNav();
   META = await Api.get('/api/meta');
+  await garantirVersaoInicial();
   const brandFileEl = document.getElementById('brand-file');
   const brandFileText = FileStore.currentFilePath() || FileStore.currentFileName() || '(salvo neste navegador)';
   brandFileEl.textContent = brandFileText;
@@ -101,6 +113,8 @@ async function startApp() {
     document.getElementById('launcher').style.display = '';
   };
   document.getElementById('btn-publicar').onclick = openPublishModal;
+  document.getElementById('btn-contexto').onclick = openContextoModal;
+  await refreshContextoButton();
   document.getElementById('mobile-nav-toggle').onclick = () => document.body.classList.toggle('nav-open');
   document.addEventListener('click', (e) => {
     if (!document.body.classList.contains('nav-open')) return;
@@ -109,6 +123,23 @@ async function startApp() {
   });
 
   setupAnotacoesButton();
+}
+
+// Primeira abertura depois do versionamento entrar no ar: cria o marco
+// "Estado inicial" com o corte no início do log (que ainda está vazio), para
+// que exista uma base de comparação desde o primeiro dia. Idempotente — só
+// roda quando não há nenhuma versão.
+async function garantirVersaoInicial() {
+  try {
+    const { versoes } = await Api.get('/api/versoes');
+    if (versoes.length) return;
+    await Api.post('/api/versoes', {
+      nome: 'Estado inicial',
+      descricao: 'Marco criado automaticamente na primeira abertura com versionamento — base de comparação para as próximas versões.',
+    });
+  } catch (e) {
+    console.error('Não foi possível criar a versão inicial:', e);
+  }
 }
 
 // Botão flutuante de Anotações — fica fora de #page-body (não é recriado a
@@ -152,6 +183,58 @@ async function openAnotacoesModal() {
   }, { size: 'form' });
 }
 
+// Barra de contexto: quem está mexendo, quem pediu e por quê. Fica carimbado
+// em TODA alteração registrada no log até o usuário trocar — sem isso, a
+// pergunta "o que mudou e quem pediu" continuaria sem resposta.
+async function refreshContextoButton() {
+  const btn = document.getElementById('btn-contexto');
+  if (!btn) return;
+  const ctx = await Api.get('/api/contexto');
+  const partes = [ctx.autor || 'sem autor'];
+  if (ctx.solicitante) partes.push(ctx.solicitante);
+  const texto = partes.join(' · ');
+  btn.innerHTML = Icon('user-plus') + `<span>${escapeHtml(texto)}</span>`;
+  btn.title = `Autor: ${ctx.autor || '—'}\nSolicitante: ${ctx.solicitante || '—'}\nMotivo: ${ctx.motivo || '—'}\n\nClique para alterar.`;
+  btn.classList.toggle('contexto-vazio', !ctx.autor);
+}
+
+async function openContextoModal() {
+  const ctx = await Api.get('/api/contexto');
+  openModal('Contexto das alterações', (body, close) => {
+    body.innerHTML = `
+      <p>Tudo que você alterar a partir de agora fica registrado com estes dados, até você trocá-los. É o que permite responder depois <em>o que mudou e quem pediu</em>.</p>
+      <div class="field-grid">
+        <label class="field-label">Seu nome (autor)
+          <input class="field-input" type="text" id="ctx-autor" value="${escapeHtml(ctx.autor || '')}" placeholder="ex: Jeeferson">
+        </label>
+        <label class="field-label">Solicitante (quem pediu)
+          <input class="field-input" type="text" id="ctx-solicitante" value="${escapeHtml(ctx.solicitante || '')}" placeholder="ex: Gerência Comercial">
+        </label>
+      </div>
+      <label class="field-label">Motivo
+        <input class="field-input" type="text" id="ctx-motivo" value="${escapeHtml(ctx.motivo || '')}" placeholder="ex: revisão de volume pedida na reunião de 12/11">
+      </label>
+      <div class="modal-actions">
+        <button id="ctx-cancel">Cancelar</button>
+        <button class="primary" id="ctx-save">${Icon('check')} Salvar</button>
+      </div>
+    `;
+    body.querySelector('#ctx-cancel').onclick = close;
+    body.querySelector('#ctx-save').onclick = async () => {
+      try {
+        await Api.put('/api/contexto', {
+          autor: body.querySelector('#ctx-autor').value.trim(),
+          solicitante: body.querySelector('#ctx-solicitante').value.trim(),
+          motivo: body.querySelector('#ctx-motivo').value.trim(),
+        });
+        await refreshContextoButton();
+        toast('Contexto atualizado.');
+        close();
+      } catch (e) { toast('Erro ao salvar: ' + e.message, true); }
+    };
+  }, { size: 'form' });
+}
+
 // Modal com input próprio (em vez de confirm()+prompt()): dois diálogos nativos
 // seguidos consomem a "ativação do usuário" antes de chegar no showSaveFilePicker,
 // que passa a rejeitar com SecurityError. Aqui o clique em "Publicar" já é a
@@ -162,6 +245,13 @@ function openPublishModal() {
       <p>Salva uma cópia deste banco de dados no local que você escolher. O arquivo de trabalho aberto agora não é alterado.</p>
       <label class="field-label">Nome do orçamento
         <input type="text" id="publish-name" value="orcamento" class="field-input" autofocus>
+      </label>
+      <label class="field-label" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="publish-versao" checked style="width:auto;margin:0">
+        Registrar também como versão (congela os indicadores de hoje para comparação futura)
+      </label>
+      <label class="field-label">Descrição da versão
+        <input type="text" id="publish-desc" class="field-input" placeholder="o que mudou nesta rodada">
       </label>
       <div class="modal-actions">
         <button id="publish-cancel">Cancelar</button>
@@ -175,6 +265,11 @@ function openPublishModal() {
       const nome = input.value.trim();
       if (!nome) { toast('Informe um nome.', true); return; }
       try {
+        // A versão é criada ANTES de exportar, para que a cópia publicada já
+        // leve o marco e o resultado congelado dentro dela.
+        if (body.querySelector('#publish-versao').checked) {
+          await Api.post('/api/versoes', { nome, descricao: body.querySelector('#publish-desc').value.trim() || null });
+        }
         const filename = await FileStore.publish(nome);
         toast('Orçamento publicado: ' + filename);
         close();

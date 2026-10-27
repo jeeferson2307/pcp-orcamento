@@ -572,6 +572,48 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
 .indicador-actions { display: flex; gap: var(--sp-2); margin-left: auto; }
 
 /* ============================================================
+   Versionamento (Versões, Comparativo, Histórico)
+   ============================================================ */
+
+/* Botão de contexto na barra do topo: mostra quem está editando e em nome de
+   quem, porque é isso que vai carimbar cada alteração registrada. */
+.ctx-btn {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  max-width: 260px; overflow: hidden;
+  border: 1px solid var(--border-strong); background: var(--surface);
+  color: var(--text-muted); font-size: 12px;
+}
+.ctx-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-btn:hover { border-color: var(--accent); color: var(--text); }
+.ctx-btn.contexto-vazio { border-color: var(--danger-strong); color: var(--danger-strong); }
+
+.aviso-versao {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  background: var(--danger-soft); color: var(--danger-strong);
+  border-radius: var(--radius-sm); padding: var(--sp-3) var(--sp-4);
+  font-size: 12.5px; margin-bottom: var(--sp-4); line-height: 1.5;
+}
+.aviso-versao.aviso-ok { background: var(--accent-soft); color: var(--accent); }
+.aviso-versao .icon { flex-shrink: 0; margin-top: 2px; }
+
+/* Verde/vermelho do delta: a cor é redundante com o sinal (+/−) de propósito,
+   para o comparativo continuar legível impresso em preto e branco. */
+.delta-pos { color: var(--accent); font-weight: 600; }
+.delta-neg { color: var(--danger-strong); font-weight: 600; }
+.delta-zero { color: var(--text-muted); }
+
+.tag-acao {
+  display: inline-block; font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 10px; letter-spacing: .02em;
+}
+.tag-criou { background: var(--accent-soft); color: var(--accent); }
+.tag-excluiu { background: var(--danger-soft); color: var(--danger-strong); }
+
+.filtro-check { justify-content: flex-end; }
+.check-inline { display: flex; align-items: center; gap: var(--sp-2); min-height: 36px; font-size: 12.5px; color: var(--text); }
+.check-inline input[type=checkbox] { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ============================================================
    Responsividade
    ============================================================ */
 @media (max-width: 900px) {

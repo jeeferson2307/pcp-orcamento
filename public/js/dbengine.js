@@ -21,9 +21,11 @@ const Engine = (() => {
     return SQL;
   }
 
-  function wrap(rawDb) {
-    sqljsDb = rawDb;
-    window.DB = {
+  // A superficie (prepare/exec/transaction) montada sobre um banco sql.js.
+  // Separada de wrap() porque o Comparativo precisa de uma SEGUNDA instancia,
+  // sobre um clone em memoria, sem mexer no window.DB de trabalho.
+  function montarApi(rawDb) {
+    return {
       _raw: rawDb,
       exec(sql) { rawDb.run(sql); },
       prepare(sql) {
@@ -71,6 +73,11 @@ const Engine = (() => {
     };
   }
 
+  function wrap(rawDb) {
+    sqljsDb = rawDb;
+    window.DB = montarApi(rawDb);
+  }
+
   // Bancos .sqlite antigos (criados antes de uma coluna nova ser adicionada ao
   // schema) não ganham a coluna automaticamente via CREATE TABLE IF NOT EXISTS
   // — por isso este passo de migração roda sempre, adicionando só o que faltar.
@@ -100,6 +107,14 @@ const Engine = (() => {
     },
     exportBytes() {
       return sqljsDb.export();
+    },
+
+    // Copia do banco atual, em memoria, com a mesma superficie de window.DB.
+    // Usada pelo Comparativo para recalcular uma versao antiga com o motor de
+    // hoje sem encostar no arquivo de trabalho. Quem chama DEVE dar close().
+    cloneAtual() {
+      const clone = new SQL.Database(sqljsDb.export());
+      return { api: montarApi(clone), close: () => clone.close() };
     },
   };
 })();

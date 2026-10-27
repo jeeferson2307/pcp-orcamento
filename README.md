@@ -106,7 +106,78 @@ arquivo (mesmo comportamento que você já tem hoje).
     gerado por engano.
   - Nos formulários mês a mês, um campo **deixado em branco apaga o valor**
     (vira nulo no banco), e não mais mantém o valor anterior.
+- **Guia Versões**
+  - **Versões** — lista dos marcos criados, com autor, data, quantidade de
+    alterações e motor de cálculo usado. Permite criar uma versão nova
+    (congela os indicadores do momento), restaurar o estado de uma versão
+    anterior e excluir um marco.
+  - **Comparativo** — escolha duas versões (ou uma versão e a *versão de
+    trabalho*, que é o estado atual) e veja os indicadores lado a lado com
+    **delta absoluto e percentual**: Receita Bruta, FTE Financeiro, HC
+    Dimensionado, HC Treinamento, Volume, ROB/Financeiro, Unitário médio,
+    TMA, Absenteísmo, Turnover, Férias e Folga Extra. Agrupe por
+    Diretoria/Site/Cliente/Operação/Mês/UN DRE/Centro de Custo/Gerente e
+    filtre por mês. Logo abaixo, a tabela **o que mudou**: cada campo
+    alterado entre as duas versões, com valor antes, valor depois, quem
+    pediu e por quê. Tudo exportável em CSV.
+  - **Histórico de Alterações** — o log completo, filtrável por versão,
+    operação, solicitante e busca livre.
 - **Outros** — Filiais/Unidades.
+
+## Versionamento (histórico e comparativo)
+
+O problema que isso resolve: alguem pede um ajuste, o valor é alterado, e
+semanas depois ninguém lembra **o que mudou nem quem pediu**.
+
+O modelo é **log de alterações + marcos de versão**, tudo dentro do mesmo
+arquivo `.sqlite`:
+
+- a unidade versionada é a **célula**, não o banco. Cada gravação registra uma
+  linha em `tb_alteracoes` com valor antes, valor depois, autor, solicitante e
+  motivo;
+- uma **versão** é apenas um corte nesse log (`tb_versoes.ultima_alteracao_id`),
+  mais os indicadores calculados congelados em `tb_versao_resultado`;
+- por isso os dados completos continuam existindo **uma única vez** (as tabelas
+  de sempre) e o motor de cálculo (`calc.js`) não precisou mudar.
+
+Dimensionamento real medido na base atual: um snapshot completo por versão
+custaria ~1,1 MB (55 MB em 50 versões, num arquivo que é reescrito a cada
+edição); neste modelo são ~100 bytes por alteração e ~0,1 MB por versão —
+**~6 MB em 50 versões**.
+
+### Barra de contexto
+
+No alto da tela, ao lado de "Publicar Orçamento", fica o botão de **contexto**:
+preencha uma vez *quem você é*, *quem pediu* e *por quê*, e toda alteração
+passa a sair carimbada com esses dados até você trocar. Enquanto o autor não
+for informado, o botão fica destacado em vermelho.
+
+### Restaurar
+
+Restaurar uma versão **não apaga histórico**: as reversões entram no log como
+alterações novas (com motivo automático) e ao final nasce uma versão nova.
+Sempre dá para voltar atrás. Linhas criadas depois do corte são removidas e
+linhas excluídas são recriadas com os valores originais.
+
+### Mudança de dado x mudança de fórmula
+
+Cada versão guarda a versão do motor de cálculo (`engine_versao`, em
+`versionamento.js`). Quando as duas versões comparadas usaram motores
+diferentes, o Comparativo **avisa**, porque parte da diferença pode vir da
+fórmula e não do dado. Marcando *"Recalcular ambas com o motor atual"*, o
+sistema reconstrói o estado antigo **num clone do banco em memória** e
+recalcula com o motor de hoje — o arquivo de trabalho não é tocado.
+
+> Ao subir `engine_versao` sempre que `calc.js` mudar, esse aviso continua
+> confiável. Se esquecer, o Comparativo passa a creditar ao dado uma
+> diferença que veio da fórmula.
+
+### Primeira abertura
+
+Na primeira vez que um banco existente é aberto com esta versão do sistema,
+as tabelas de versionamento são criadas automaticamente e nasce o marco
+**"Estado inicial"**, para servir de base de comparação. O histórico anterior
+à adoção não existe — começa a ser gravado a partir daí.
 
 ## Arquitetura (tudo em `public/`, sem build step)
 
@@ -137,7 +208,14 @@ arquivo (mesmo comportamento que você já tem hoje).
   (lista → janela da operação → combo de indicadores → grade mês × filial),
   incluindo o recorte das filiais da operação, o popup de replicação por
   intervalo de meses e a validação de soma 100% da Distribuição.
-- **`js/pages.js` / `js/app.js`** — Painel Gerencial, Analítico, navegação.
+- **`js/versionamento.js`** — o motor do versionamento: registro de
+  alterações, cortes de versão, congelamento dos indicadores, restauração,
+  diff de entradas e comparação de indicadores. Dado e log vão sempre na
+  **mesma transação** — histórico incompleto em silêncio seria pior do que a
+  edição não acontecer.
+- **`js/versoes.js`** — as telas de Versões, Comparativo e Histórico.
+- **`js/pages.js` / `js/app.js`** — Painel Gerencial, Analítico, navegação e a
+  barra de contexto das alterações.
 
 ## Pasta `src/` (só para manutenção — não é usada pelo app)
 

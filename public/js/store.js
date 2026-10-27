@@ -80,9 +80,22 @@ const Store = {
     return { config: cfg, idCols, filiais, rows: out };
   },
 
+  // Toda gravação daqui pra baixo registra a diferença em tb_alteracoes
+  // (ver versionamento.js): valor antes, valor depois, quem mexeu, quem pediu
+  // e por quê. É o único lugar do app que escreve no banco, por isso o log
+  // não tem como ficar furado.
+  //
+  // Dado e log vão na MESMA transação de propósito: se o registro falhar, a
+  // gravação também volta atrás. O contrário — dado gravado e log perdido —
+  // deixaria o histórico mentindo, que é justamente o problema que este
+  // mecanismo existe para resolver.
+
   putWideCells(table, cells) {
     const cfg = WIDE_TABLES[table];
     if (!cfg) throw new Error('tabela desconhecida: ' + table);
+    const sel = DB.prepare(cfg.hasTipoDimens
+      ? `SELECT valor FROM ${table} WHERE referencia=? AND tipo_dimens=? AND nom_operacao=? AND unidade=?`
+      : `SELECT valor FROM ${table} WHERE referencia=? AND nom_operacao=? AND unidade=?`);
     const stmt = cfg.hasTipoDimens
       ? DB.prepare(`INSERT INTO ${table} (referencia, tipo_dimens, nom_operacao, unidade, valor) VALUES (?,?,?,?,?)
                     ON CONFLICT(referencia, tipo_dimens, nom_operacao, unidade) DO UPDATE SET valor = excluded.valor`)
@@ -90,8 +103,13 @@ const Store = {
                     ON CONFLICT(referencia, nom_operacao, unidade) DO UPDATE SET valor = excluded.valor`);
     const tx = DB.transaction((items) => {
       for (const c of items) {
+        const atual = cfg.hasTipoDimens
+          ? sel.get(c.referencia, c.tipo_dimens, c.nom_operacao, c.unidade)
+          : sel.get(c.referencia, c.nom_operacao, c.unidade);
+        const antes = atual ? atual.valor : null;
         if (cfg.hasTipoDimens) stmt.run(c.referencia, c.tipo_dimens, c.nom_operacao, c.unidade, c.valor);
         else stmt.run(c.referencia, c.nom_operacao, c.unidade, c.valor);
+        Versionamento.registrar({ tabela: table, chaveObj: c, campo: 'valor', antes, depois: c.valor ?? null });
       }
     });
     tx(cells);
@@ -99,6 +117,9 @@ const Store = {
     return { ok: true, updated: cells.length };
   },
 
+  // Não registra nada no log: só cria as linhas vazias (valor NULL) de um mês
+  // para todas as filiais. Os valores em si chegam pelo putWideCells seguinte,
+  // e é ele quem registra.
   postWideRow(table, { referencia, tipo_dimens, nom_operacao }) {
     const cfg = WIDE_TABLES[table];
     if (!cfg) throw new Error('tabela desconhecida: ' + table);
@@ -123,11 +144,20 @@ const Store = {
   deleteWideRow(table, { referencia, tipo_dimens, nom_operacao }) {
     const cfg = WIDE_TABLES[table];
     if (!cfg) throw new Error('tabela desconhecida: ' + table);
-    if (cfg.hasTipoDimens) {
-      DB.prepare(`DELETE FROM ${table} WHERE referencia=? AND tipo_dimens=? AND nom_operacao=?`).run(referencia, tipo_dimens, nom_operacao);
-    } else {
-      DB.prepare(`DELETE FROM ${table} WHERE referencia=? AND nom_operacao=?`).run(referencia, nom_operacao);
-    }
+    const where = cfg.hasTipoDimens
+      ? 'referencia=? AND tipo_dimens=? AND nom_operacao=?'
+      : 'referencia=? AND nom_operacao=?';
+    const params = cfg.hasTipoDimens ? [referencia, tipo_dimens, nom_operacao] : [referencia, nom_operacao];
+    const tx = DB.transaction(() => {
+      // guarda o que vai sumir, para a restauração saber recriar
+      const antigos = DB.prepare(`SELECT * FROM ${table} WHERE ${where}`).all(...params);
+      DB.prepare(`DELETE FROM ${table} WHERE ${where}`).run(...params);
+      for (const row of antigos) {
+        if (row.valor == null) continue;
+        Versionamento.registrar({ acao: 'excluiu', tabela: table, chaveObj: row, campo: 'valor', antes: row.valor, depois: null });
+      }
+    });
+    tx();
     notifyChanged();
     return { ok: true };
   },
@@ -141,8 +171,23 @@ const Store = {
     const cfg = FLAT_TABLES[table];
     if (!cfg) throw new Error('tabela desconhecida: ' + table);
     const cols = columnsOf(table);
-    const placeholders = cols.map(() => '?').join(',');
-    DB.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`).run(...cols.map(c => rec[c] ?? null));
+    const tx = DB.transaction(() => {
+      DB.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`)
+        .run(...cols.map(c => rec[c] ?? null));
+      let registrou = false;
+      for (const c of cols) {
+        if (cfg.pk.includes(c) || rec[c] == null) continue;
+        Versionamento.registrar({ acao: 'criou', tabela: table, chaveObj: rec, campo: c, antes: null, depois: rec[c] });
+        registrou = true;
+      }
+      // Uma linha criada só com a chave preenchida ainda precisa deixar rastro,
+      // senão a restauração não sabe que ela nasceu depois do corte.
+      if (!registrou) {
+        const primeiro = cols.find(c => !cfg.pk.includes(c)) || cfg.pk[0];
+        Versionamento.registrar({ acao: 'criou', tabela: table, chaveObj: rec, campo: primeiro, antes: null, depois: null });
+      }
+    });
+    tx();
     notifyChanged();
     return { ok: true };
   },
@@ -154,8 +199,15 @@ const Store = {
     const setCols = cols.filter(c => !cfg.pk.includes(c));
     const setClause = setCols.map(c => `${c} = ?`).join(', ');
     const whereClause = cfg.pk.map(c => `${c} = ?`).join(' AND ');
-    DB.prepare(`UPDATE ${table} SET ${setClause} WHERE ${whereClause}`)
-      .run(...setCols.map(c => rec[c] ?? null), ...cfg.pk.map(c => rec[c]));
+    const tx = DB.transaction(() => {
+      const antigo = DB.prepare(`SELECT * FROM ${table} WHERE ${whereClause}`).get(...cfg.pk.map(c => rec[c])) || {};
+      DB.prepare(`UPDATE ${table} SET ${setClause} WHERE ${whereClause}`)
+        .run(...setCols.map(c => rec[c] ?? null), ...cfg.pk.map(c => rec[c]));
+      for (const c of setCols) {
+        Versionamento.registrar({ tabela: table, chaveObj: rec, campo: c, antes: antigo[c] ?? null, depois: rec[c] ?? null });
+      }
+    });
+    tx();
     notifyChanged();
     return { ok: true };
   },
@@ -163,8 +215,23 @@ const Store = {
   deleteFlat(table, rec) {
     const cfg = FLAT_TABLES[table];
     if (!cfg) throw new Error('tabela desconhecida: ' + table);
+    const cols = columnsOf(table);
     const whereClause = cfg.pk.map(c => `${c} = ?`).join(' AND ');
-    DB.prepare(`DELETE FROM ${table} WHERE ${whereClause}`).run(...cfg.pk.map(c => rec[c]));
+    const tx = DB.transaction(() => {
+      const antigo = DB.prepare(`SELECT * FROM ${table} WHERE ${whereClause}`).get(...cfg.pk.map(c => rec[c])) || {};
+      DB.prepare(`DELETE FROM ${table} WHERE ${whereClause}`).run(...cfg.pk.map(c => rec[c]));
+      let registrou = false;
+      for (const c of cols) {
+        if (cfg.pk.includes(c) || antigo[c] == null) continue;
+        Versionamento.registrar({ acao: 'excluiu', tabela: table, chaveObj: rec, campo: c, antes: antigo[c], depois: null });
+        registrou = true;
+      }
+      if (!registrou) {
+        const primeiro = cols.find(c => !cfg.pk.includes(c)) || cfg.pk[0];
+        Versionamento.registrar({ acao: 'excluiu', tabela: table, chaveObj: rec, campo: primeiro, antes: null, depois: null });
+      }
+    });
+    tx();
     notifyChanged();
     return { ok: true };
   },
@@ -177,9 +244,13 @@ const Store = {
   },
 
   setParametro(chave, valor) {
-    const existe = DB.prepare('SELECT chave FROM tb_parametros WHERE chave = ?').get(chave);
-    if (existe) DB.prepare('UPDATE tb_parametros SET valor = ? WHERE chave = ?').run(valor, chave);
+    const atual = DB.prepare('SELECT valor FROM tb_parametros WHERE chave = ?').get(chave);
+    if (atual) DB.prepare('UPDATE tb_parametros SET valor = ? WHERE chave = ?').run(valor, chave);
     else DB.prepare('INSERT INTO tb_parametros (chave, valor) VALUES (?, ?)').run(chave, valor);
+    Versionamento.registrar({
+      acao: atual ? 'alterou' : 'criou', tabela: 'tb_parametros', chaveObj: { chave },
+      campo: 'valor', antes: atual ? atual.valor : null, depois: valor,
+    });
     notifyChanged();
     return { ok: true };
   },
@@ -380,4 +451,55 @@ const Store = {
     const totals = summarize(rows);
     return { ano, groupBy: g, drillBy: d, totals, grupos, porMes, filterOptions };
   },
+
+  // ---------------------------------------------------------------
+  // Versionamento (ver versionamento.js). O Store continua sendo a unica
+  // porta de entrada da UI: as telas nao falam com o Versionamento direto.
+  // ---------------------------------------------------------------
+  getContexto() { return Versionamento.getContexto(); },
+
+  setContexto(ctx) {
+    const atual = Versionamento.setContexto(ctx);
+    notifyChanged();
+    return atual;
+  },
+
+  getVersoes() {
+    const pendentes = DB.prepare('SELECT COUNT(*) AS n FROM tb_alteracoes WHERE versao_id IS NULL').get().n;
+    return {
+      versoes: Versionamento.listarVersoes(),
+      contexto: Versionamento.getContexto(),
+      engine: Versionamento.ENGINE_VERSAO,
+      anoPadrao: Versionamento.anoProjecaoPadrao(),
+      pendentes,
+    };
+  },
+
+  postVersao(body) {
+    const v = Versionamento.criarVersao(body || {});
+    notifyChanged();
+    return v;
+  },
+
+  deleteVersao(body) {
+    const r = Versionamento.excluirVersao(body.id);
+    notifyChanged();
+    return r;
+  },
+
+  restaurarVersao(body) {
+    const r = Versionamento.restaurarVersao(body.id);
+    notifyChanged();
+    return r;
+  },
+
+  getHistorico(q) {
+    return {
+      linhas: Versionamento.historico(q || {}),
+      solicitantes: Versionamento.solicitantesConhecidos(),
+      versoes: Versionamento.listarVersoes(),
+    };
+  },
+
+  getComparativo(q) { return Versionamento.comparar(q || {}); },
 };
