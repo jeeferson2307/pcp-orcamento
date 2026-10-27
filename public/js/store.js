@@ -37,9 +37,17 @@ const Store = {
     const anoAtual = new Date().getFullYear();
     const anoMinDimens = anosDimens.length ? Math.min(...anosDimens) : anoAtual;
     const anoMaxDimens = anosDimens.length ? Math.max(...anosDimens) : anoAtual;
+    // Filiais de cada operação (uma linha de Cadastro Operações por
+    // operação+filial): os cadastros de premissas usam isso para mostrar só
+    // as filiais em que a operação existe, em vez de todas as da empresa.
+    const filiaisPorOperacao = {};
+    for (const r of DB.prepare('SELECT operacao, filial FROM cadastro_operacoes WHERE operacao IS NOT NULL AND filial IS NOT NULL').all()) {
+      if (!filiaisPorOperacao[r.operacao]) filiaisPorOperacao[r.operacao] = [];
+      if (!filiaisPorOperacao[r.operacao].includes(r.filial)) filiaisPorOperacao[r.operacao].push(r.filial);
+    }
     return {
       filiais, operacoes, tiposDimens, responsaveis, gerentes, centrosCusto,
-      anoMinDimens, anoMaxDimens,
+      anoMinDimens, anoMaxDimens, filiaisPorOperacao,
       wideTables: WIDE_TABLES,
       flatTables: Object.fromEntries(Object.entries(FLAT_TABLES).map(([k, v]) => [k, { ...v, columns: columnsOf(k) }])),
     };

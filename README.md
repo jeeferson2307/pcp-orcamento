@@ -66,26 +66,46 @@ arquivo (mesmo comportamento que você já tem hoje).
     (sem acentos/espaços) + `_AAAAMMDD` no local que você escolher — sem
     alterar o arquivo de trabalho que está aberto.
 - **Guias de Cadastro** (lista vertical de operações → clique abre uma
-  janela com o detalhe mês a mês)
+  janela grande com o detalhe daquela operação)
+
+  Todas as guias de premissas seguem o mesmo padrão: um **combo de
+  indicadores** no topo da janela e, abaixo, a grade **mês × filial** só do
+  indicador escolhido — em vez de todos os indicadores lado a lado numa
+  tabela larguíssima. As colunas de filial trazem **apenas as filiais em que
+  a operação está cadastrada** em Cadastro Operações (o aviso ao lado do
+  combo mostra, por exemplo, "2 de 4 filiais"). Se a operação não tiver
+  nenhuma filial cadastrada, a grade volta a mostrar todas — sinal de que
+  falta completar o Cadastro Operações.
   - **Cadastro Operações** — tabela única (substitui os antigos cadastros
     separados de Centro de Custo e Operações).
   - **Cadastro Dimensionamento** — Volume, TMA, Pausa e Ocupação (formato
     decimal `#.#`, sem casas de percentual — replica o formato original da
     planilha), HC Dimensionado, HC Contratado. Ao adicionar um mês, o
     TIPO_DIMENS é herdado automaticamente do último mês cadastrado.
-  - **Cadastro Premissas Overstaff** — Absenteísmo, Turnover, Férias, Folga
-    Extra, Evasão (por filial, formato `##.#`), com separação visual entre
-    os blocos de cada indicador.
-  - **Cadastro Premissas Receita** — Unitário/Abandono/Shortcalls/Tipo de
-    Faturamento (fixo por filial) + CPRB/Reajuste/Receita Bodyshop
-    (mensal, por filial).
-  - **Cadastro Premissas Adicionais** — Contratações Adicionais, Spam
-    Supervisão, Jovem Aprendiz (por filial).
-  - **Cadastro Distribuição (Volume & HC)** — % por filial, com coluna de
-    Total (verde se soma ≈100%, vermelho caso contrário).
-  - Todo cadastro mensal tem um botão **"→"** por linha para replicar os
-    valores daquele mês para o mês seguinte, e um **"✕"** para excluir um
-    mês que foi gerado por engano.
+  - **Cadastro Premissas Overstaff** — combo com Absenteísmo, Turnover,
+    Férias, Folga Extra, Evasão Treinamento e Feriado Local (formato
+    `##.#`), um indicador por vez.
+  - **Cadastro Premissas Receita** — combo com Unitário de Faturamento
+    (Unitário/Abandono/Shortcalls/Tipo de Faturamento, fixo por filial, sem
+    mês) + CPRB, Reajuste e Receita Bodyshop (mensais).
+  - **Cadastro Premissas Adicionais** — combo com Contratações Adicionais,
+    Spam Supervisão e Jovem Aprendiz.
+  - **Cadastro Distribuição (Volume & HC)** — combo com Distribuição de
+    Volume e Distribuição de HC, cada uma com coluna de Total (verde se soma
+    ≈100%, vermelho caso contrário). Como as colunas agora são só as filiais
+    da operação, o Total passa a fechar 100% sem contar filiais que não
+    participam.
+  - **Cadastro Ajuste Premissas** — combo com Ajuste de Volume, TMA e Pausa.
+    É o único cadastro sem dimensão de filial (a grade é mês × valor); os
+    três ajustes de um mesmo mês moram na mesma linha do banco, então editar
+    um preserva os outros dois.
+  - Todo cadastro mensal tem um botão **"→"** por linha que abre um popup
+    perguntando **até qual mês replicar** — os valores daquele mês são
+    copiados para todos os meses até o escolhido (inclusive), sobrescrevendo
+    os que já existirem. Há também um **"✕"** para excluir um mês que foi
+    gerado por engano.
+  - Nos formulários mês a mês, um campo **deixado em branco apaga o valor**
+    (vira nulo no banco), e não mais mantém o valor anterior.
 - **Outros** — Filiais/Unidades.
 
 ## Arquitetura (tudo em `public/`, sem build step)
@@ -113,9 +133,10 @@ arquivo (mesmo comportamento que você já tem hoje).
 - **`js/widegrid.js` / `js/flatgrid.js`** — grades genéricas (tabela larga
   pivotada por filial / tabela chata com CRUD por chave primária).
 - **`js/modal.js`** — janela (overlay) genérica usada pelos cadastros.
-- **`js/cadastros.js`** — as 5 telas de cadastro com navegação por operação
-  (lista → modal mês a mês), incluindo o botão de replicar mês e a
-  validação de soma 100% da Distribuição.
+- **`js/cadastros.js`** — as 6 telas de cadastro com navegação por operação
+  (lista → janela da operação → combo de indicadores → grade mês × filial),
+  incluindo o recorte das filiais da operação, o popup de replicação por
+  intervalo de meses e a validação de soma 100% da Distribuição.
 - **`js/pages.js` / `js/app.js`** — Painel Gerencial, Analítico, navegação.
 
 ## Pasta `src/` (só para manutenção — não é usada pelo app)

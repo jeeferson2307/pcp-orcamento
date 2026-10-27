@@ -534,7 +534,12 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
   background: var(--surface); border-radius: var(--radius-lg); width: 100%; max-width: 1440px;
   max-height: 94vh; display: flex; flex-direction: column; box-shadow: var(--shadow-lg);
 }
-.modal-box-form { max-width: 640px; }
+.modal-box-form { max-width: 780px; }
+/* Janela de uma operação nos cadastros: ocupa quase a tela inteira, porque
+   dentro dela moram as grades de mês x filial. A altura fixa evita que a
+   janela pule de tamanho a cada troca de indicador no combo. */
+.modal-box-cadastro { max-width: min(1760px, 97vw); width: 97vw; height: 93vh; }
+.modal-box-cadastro .modal-body { flex: 1; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: var(--sp-4) var(--sp-6); border-bottom: 1px solid var(--border);
@@ -556,6 +561,15 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
 .field-grid .field-label { margin-bottom: 0; }
 .field-input:disabled { background: var(--surface-alt); color: var(--text-muted); }
 .modal-actions { display: flex; gap: var(--sp-3); justify-content: flex-end; padding-top: var(--sp-3); border-top: 1px solid var(--border); }
+
+/* ============================================================
+   Barra do combo de indicadores (cadastros de premissas)
+   ============================================================ */
+.indicador-bar { align-items: flex-end; }
+.indicador-field { margin-bottom: 0; min-width: 300px; }
+.indicador-field .field-input { min-height: 38px; }
+.indicador-hint { color: var(--text-muted); padding-bottom: var(--sp-2); }
+.indicador-actions { display: flex; gap: var(--sp-2); margin-left: auto; }
 
 /* ============================================================
    Responsividade
@@ -583,5 +597,7 @@ tr.sub-row td.indent { padding-left: 40px; color: var(--text-muted); font-style:
   .kpi-card { min-width: 100%; }
   .modal-overlay { padding: 0; }
   .modal-box { max-height: 100vh; height: 100vh; border-radius: 0; }
+  /* no celular a janela de cadastro ocupa a tela toda, sem a folga dos 97vw */
+  .modal-box-cadastro { width: 100%; max-width: none; height: 100vh; }
   .toolbar { gap: var(--sp-2); }
 }
