@@ -1,6 +1,7 @@
 // Tabelas "chatas" (não precisam de pivot) com CRUD genérico via chave primária.
 const FLAT_TABLES = {
   d_filiais: {
+    arquivo: 'filiais',
     pk: ['unidade'],
     label: 'Filiais / Unidades',
     fields: [
@@ -11,6 +12,7 @@ const FLAT_TABLES = {
     ],
   },
   d_centro_custo: {
+    arquivo: 'centro_custo',
     pk: ['cod_centro_de_custo'],
     label: 'Cadastro de Centro de Custo',
     fields: [
@@ -27,6 +29,7 @@ const FLAT_TABLES = {
     ],
   },
   cadastro_operacoes: {
+    arquivo: 'operacoes',
     pk: ['filial', 'operacao'],
     label: 'Cadastro de Operações',
     // Os campos marcados com `readOnly` não pertencem à operação: vêm do

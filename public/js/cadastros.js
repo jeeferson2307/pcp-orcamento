@@ -53,6 +53,40 @@ function monthRange(mesInicio, mesFim) {
   return meses;
 }
 
+// Todos os meses que a operação tem em QUALQUER cadastro de premissa. Serve de
+// rede para o modelo de planilha quando o cadastro aberto ainda está vazio
+// (ver mesesDoModelo).
+async function mesesConhecidosDaOperacao(operacao) {
+  const meses = new Set();
+  const tabelas = Object.keys(WIDE_TABLES);
+  for (const t of tabelas) {
+    const res = await Api.get(`/api/wide/${t}`);
+    res.rows.filter(r => r.nom_operacao === operacao).forEach(r => meses.add(r.referencia));
+  }
+  for (const rota of ['/api/flat/tb_premissas_dimens', '/api/flat/tb_ajuste_premissas']) {
+    (await Api.get(rota)).filter(r => r.nom_operacao === operacao && r.referencia).forEach(r => meses.add(r.referencia));
+  }
+  return meses;
+}
+
+// Meses que o modelo de planilha traz: do primeiro ao último mês já
+// cadastrado naquele cadastro para a operação, SEM BURACOS. A faixa inteira
+// (e não só os meses que o indicador selecionado já possui) é o que permite
+// preencher na planilha um mês que hoje só existe em outro indicador.
+//
+// Se o cadastro inteiro ainda estiver vazio (acontece bastante em CPRB,
+// Reajuste e Bodyshop, que poucas operações usam), cai para o horizonte que a
+// operação tem nos demais cadastros — sem isso o modelo sairia só com o
+// cabeçalho, sem uma linha sequer para preencher.
+async function mesesDoModelo(monthsSet, operacao) {
+  let meses = [...monthsSet].filter(Boolean).sort();
+  if (!meses.length && operacao) {
+    meses = [...await mesesConhecidosDaOperacao(operacao)].filter(Boolean).sort();
+  }
+  if (!meses.length) return [];
+  return monthRange(meses[0], meses[meses.length - 1]);
+}
+
 function byReferencia(a, b) {
   return a.referencia < b.referencia ? -1 : a.referencia > b.referencia ? 1 : 0;
 }
@@ -202,7 +236,9 @@ function renderIndicadorShell(container, { indicadores, hint, template, onRender
     await onRender(indicadores[Number(select.value)], host);
   }
   select.onchange = reload;
-  return { reload };
+  // `atual` deixa quem montou o shell saber qual indicador está na tela — os
+  // botões de modelo de planilha trabalham só sobre ele.
+  return { reload, atual: () => indicadores[Number(select.value)] };
 }
 
 // ---------------------------------------------------------------
@@ -470,7 +506,7 @@ async function renderCadastroWidePorIndicador(container, operacao, metrics, meta
     indicadores: metrics,
     hint: hintFiliais(filiais, meta),
     template: templateOpts ? {
-      onDownload: () => downloadMetricGridTemplate(operacao, metrics, filiais, templateOpts.filenamePrefix),
+      onDownload: () => downloadMetricGridTemplate(operacao, metrics, filiais, templateOpts.filenamePrefix, shell.atual()),
       onUpload: async () => {
         const file = await pickFile('.csv');
         if (file) await importMetricGridTemplate(operacao, file, metrics, meta, () => shell.reload());
@@ -681,7 +717,7 @@ async function renderReceitaDetail(container, operacao, meta) {
     indicadores: RECEITA_INDICADORES,
     hint: hintFiliais(filiais, meta),
     template: {
-      onDownload: () => downloadReceitaTemplate(operacao, filiais),
+      onDownload: () => downloadReceitaTemplate(operacao, filiais, shell.atual()),
       onUpload: async () => {
         const file = await pickFile('.csv');
         if (file) await importReceitaTemplate(operacao, file, meta, () => shell.reload());
@@ -795,7 +831,7 @@ async function renderDistribuicaoDetail(container, operacao, meta) {
     indicadores: DISTRIBUICAO_INDICADORES,
     hint: hintFiliais(filiais, meta),
     template: {
-      onDownload: () => downloadDistribuicaoTemplate(operacao, filiais),
+      onDownload: () => downloadDistribuicaoTemplate(operacao, filiais, shell.atual()),
       onUpload: async () => {
         const file = await pickFile('.csv');
         if (file) await importDistribuicaoTemplate(operacao, file, meta, () => shell.reload());
@@ -973,7 +1009,7 @@ async function renderAjusteDetail(container, operacao) {
     indicadores: AJUSTE_FIELDS,
     hint: mesBase ? `Só tem efeito nos meses projetados, depois de ${Fmt.mes(mesBase)}` : '',
     template: {
-      onDownload: () => downloadAjusteTemplate(operacao),
+      onDownload: () => downloadAjusteTemplate(operacao, shell.atual()),
       onUpload: async () => {
         const file = await pickFile('.csv');
         if (file) await importAjusteTemplate(operacao, file, () => shell.reload());
@@ -1129,43 +1165,8 @@ async function renderAjusteGrid(host, operacao, campo, mesBase) {
 // houver nenhum erro — em caso de erro, lista tudo ao usuário e não
 // executa nenhuma gravação.
 // ---------------------------------------------------------------
-function sanitizeFileName(s) {
-  return s.replace(/[\\/:*?"<>|]+/g, '_');
-}
-
-// Abre o seletor de arquivo do sistema operacional e resolve com o File
-// escolhido (ou null se o usuário cancelar — o evento 'cancel' nem sempre
-// dispara em todos os navegadores, então isso fica pendente até o próximo
-// clique nesse caso raro, sem efeito colateral).
-function pickFile(accept) {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = accept;
-    input.style.display = 'none';
-    input.onchange = () => {
-      resolve(input.files[0] || null);
-      input.remove();
-    };
-    document.body.appendChild(input);
-    input.click();
-  });
-}
-
-function showImportErrors(title, errors) {
-  openModal(title, (body, close) => {
-    body.innerHTML = `
-      <div class="empty-state" style="text-align:left;margin-bottom:16px">${Icon('circle-alert')} A planilha não está no padrão esperado. Corrija os itens abaixo e importe novamente — nada foi salvo.</div>
-      <ul class="import-error-list">${errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
-      <div class="modal-actions"><button class="primary" id="import-err-close">Fechar</button></div>
-    `;
-    body.querySelector('#import-err-close').onclick = close;
-  }, { size: 'form' });
-}
-
-function csvCell(row, idx) {
-  return row && row[idx] != null ? String(row[idx]).trim() : '';
-}
+// sanitizeFileName, pickFile, showImportErrors e csvCell moram em
+// exportutil.js (também usados pelas grades de dimensão em flatgrid.js).
 
 // "AAAA-MM" (texto do modelo) <-> "AAAA-MM-01" (referencia salva no banco).
 function parseMonthCell(text) {
@@ -1280,12 +1281,17 @@ async function loadMetricGridData(metrics, operacao) {
   return { dataByMetric, monthsSet };
 }
 
-async function downloadMetricGridTemplate(operacao, metrics, filiais, filenamePrefix) {
+// O arquivo traz SÓ o indicador selecionado no combo. Antes vinham todos os
+// indicadores do cadastro lado a lado, enchendo a planilha de colunas que não
+// tinham relação com o que o usuário estava editando.
+async function downloadMetricGridTemplate(operacao, metrics, filiais, filenamePrefix, metricSelecionada) {
+  const metric = metricSelecionada || metrics[0];
+  // carrega todos os indicadores só para saber a faixa de meses do cadastro
   const { dataByMetric, monthsSet } = await loadMetricGridData(metrics, operacao);
-  const months = [...monthsSet].sort();
-  const csvRows = buildMetricGridTemplateRows(metrics, filiais, dataByMetric, months);
-  ExportUtil.downloadCsv(`modelo_${filenamePrefix}_${sanitizeFileName(operacao)}.csv`, csvRows);
-  toast('Modelo baixado.');
+  const months = await mesesDoModelo(monthsSet, operacao);
+  const csvRows = buildMetricGridTemplateRows([metric], filiais, dataByMetric, months);
+  ExportUtil.downloadCsv(`modelo_${filenamePrefix}_${sanitizeFileName(metric.label)}_${sanitizeFileName(operacao)}.csv`, csvRows);
+  toast(`Modelo de ${metric.label} baixado (${months.length} mês(es)).`);
 }
 
 async function importMetricGridTemplate(operacao, file, metrics, meta, reload) {
@@ -1447,35 +1453,41 @@ async function importDimensTemplate(operacao, file, reload) {
 }
 
 // ---- Cadastro Premissas Receita (Unitários por filial + grade mensal) ----
-async function downloadReceitaTemplate(operacao, filiais) {
-  const unitariosAll = await Api.get('/api/flat/tb_unitarios');
-  const unitRows = filiais.map(f => {
-    const rec = unitariosAll.find(u => u.filial === f && u.operacao === operacao) || {};
-    return [f, ...UNITARIO_FIELDS.map(uf => Fmt.toEdit(rec[uf.key], uf.format)), rec.tipo_faturamento || ''];
-  });
+// Também por indicador: o Unitário de Faturamento sai sozinho na seção
+// "## UNITARIOS", e cada indicador mensal sozinho na "## MENSAL".
+async function downloadReceitaTemplate(operacao, filiais, indicador) {
+  const ind = indicador || RECEITA_INDICADORES[0];
+  if (ind.kind === 'unitarios') {
+    const unitariosAll = await Api.get('/api/flat/tb_unitarios');
+    const unitRows = filiais.map(f => {
+      const rec = unitariosAll.find(u => u.filial === f && u.operacao === operacao) || {};
+      return [f, ...UNITARIO_FIELDS.map(uf => Fmt.toEdit(rec[uf.key], uf.format)), rec.tipo_faturamento || ''];
+    });
+    ExportUtil.downloadCsv(`modelo_receita_unitarios_${sanitizeFileName(operacao)}.csv`, [
+      ['## UNITARIOS'],
+      ['Filial', ...UNITARIO_FIELDS.map(labelWithUnit), 'Tipo Faturamento'],
+      ...unitRows,
+    ]);
+    toast('Modelo de Unitário de Faturamento baixado.');
+    return;
+  }
   const { dataByMetric, monthsSet } = await loadMetricGridData(RECEITA_MONTHLY_METRICS, operacao);
-  const months = [...monthsSet].sort();
-
-  const csvRows = [
-    ['## UNITARIOS'],
-    ['Filial', ...UNITARIO_FIELDS.map(labelWithUnit), 'Tipo Faturamento'],
-    ...unitRows,
-    [],
-    ['## MENSAL'],
-    ...buildMetricGridTemplateRows(RECEITA_MONTHLY_METRICS, filiais, dataByMetric, months),
-  ];
-  ExportUtil.downloadCsv(`modelo_premissas_receita_${sanitizeFileName(operacao)}.csv`, csvRows);
-  toast('Modelo baixado.');
+  const months = await mesesDoModelo(monthsSet, operacao);
+  const csvRows = [['## MENSAL'], ...buildMetricGridTemplateRows([ind], filiais, dataByMetric, months)];
+  ExportUtil.downloadCsv(`modelo_receita_${sanitizeFileName(ind.label)}_${sanitizeFileName(operacao)}.csv`, csvRows);
+  toast(`Modelo de ${ind.label} baixado (${months.length} mês(es)).`);
 }
 
 function parseReceitaTemplate(text, filiais) {
   const rows = ExportUtil.parseCsv(text);
   const sections = splitCsvSections(rows);
   const errors = [];
-  if (!sections['UNITARIOS'] || !sections['MENSAL']) {
-    return { errors: ['Arquivo não contém as seções "## UNITARIOS" e "## MENSAL" esperadas — baixe o modelo novamente e preencha por cima dele.'], unitarios: [], mensal: { byMonth: [] } };
+  // Aceita o arquivo com apenas UMA das seções: o modelo agora é baixado por
+  // indicador, então nem todo arquivo válido tem as duas.
+  if (!sections['UNITARIOS'] && !sections['MENSAL']) {
+    return { errors: ['Arquivo não contém a seção "## UNITARIOS" nem a "## MENSAL" — baixe o modelo novamente e preencha por cima dele.'], unitarios: [], mensal: { byMonth: [] } };
   }
-  const uRows = sections['UNITARIOS'].slice(1);
+  const uRows = (sections['UNITARIOS'] || []).slice(1);
   const unitarios = [];
   const seenFil = new Set();
   uRows.forEach((row, idx) => {
@@ -1497,8 +1509,12 @@ function parseReceitaTemplate(text, filiais) {
     unitarios.push(rec);
   });
 
-  const { errors: mErrors, byMonth } = parseMetricGridRows(sections['MENSAL'], RECEITA_MONTHLY_METRICS, filiais, 'MENSAL');
-  errors.push(...mErrors);
+  let byMonth = [];
+  if (sections['MENSAL']) {
+    const r = parseMetricGridRows(sections['MENSAL'], RECEITA_MONTHLY_METRICS, filiais, 'MENSAL');
+    errors.push(...r.errors);
+    byMonth = r.byMonth;
+  }
   return { errors, unitarios, mensal: { byMonth } };
 }
 
@@ -1531,36 +1547,41 @@ async function importReceitaTemplate(operacao, file, meta, reload) {
 }
 
 // ---- Cadastro Distribuição (Volume % + HC %, por filial e por mês) ----
-async function downloadDistribuicaoTemplate(operacao, filiais) {
+async function downloadDistribuicaoTemplate(operacao, filiais, indicador) {
+  const ind = indicador || DISTRIBUICAO_INDICADORES[0];
   const [vol, hc] = await Promise.all([
     Api.get('/api/wide/tb_distribuicao_volume'),
     Api.get('/api/wide/tb_distribuicao_hc'),
   ]);
   const volRows = vol.rows.filter(r => r.nom_operacao === operacao);
   const hcRows = hc.rows.filter(r => r.nom_operacao === operacao);
-  const monthsSet = new Set([...volRows, ...hcRows].map(r => r.referencia));
-  const months = [...monthsSet].sort();
+  const months = await mesesDoModelo(new Set([...volRows, ...hcRows].map(r => r.referencia)), operacao);
 
-  const csvRows = [
-    ['## VOLUME'],
-    ...buildSingleFilialGridRows(filiais, volRows, months),
-    [],
-    ['## HC'],
-    ...buildSingleFilialGridRows(filiais, hcRows, months),
-  ];
-  ExportUtil.downloadCsv(`modelo_distribuicao_${sanitizeFileName(operacao)}.csv`, csvRows);
-  toast('Modelo baixado.');
+  const secao = ind.key === 'volume' ? 'VOLUME' : 'HC';
+  const dados = ind.key === 'volume' ? volRows : hcRows;
+  const csvRows = [[`## ${secao}`], ...buildSingleFilialGridRows(filiais, dados, months)];
+  ExportUtil.downloadCsv(`modelo_distribuicao_${secao.toLowerCase()}_${sanitizeFileName(operacao)}.csv`, csvRows);
+  toast(`Modelo de ${ind.label} baixado (${months.length} mês(es)).`);
 }
 
 function parseDistribuicaoTemplate(text, filiais) {
   const rows = ExportUtil.parseCsv(text);
   const sections = splitCsvSections(rows);
-  if (!sections['VOLUME'] || !sections['HC']) {
-    return { errors: ['Arquivo não contém as seções "## VOLUME" e "## HC" esperadas — baixe o modelo novamente e preencha por cima dele.'], volume: [], hc: [] };
+  // Uma seção basta: o modelo é baixado por indicador.
+  if (!sections['VOLUME'] && !sections['HC']) {
+    return { errors: ['Arquivo não contém a seção "## VOLUME" nem a "## HC" — baixe o modelo novamente e preencha por cima dele.'], volume: [], hc: [] };
   }
-  const { errors: vErr, byMonth: volume } = parseSingleFilialGridRows(sections['VOLUME'], filiais, 'VOLUME');
-  const { errors: hErr, byMonth: hc } = parseSingleFilialGridRows(sections['HC'], filiais, 'HC');
-  return { errors: [...vErr, ...hErr], volume, hc };
+  const erros = [];
+  let volume = [], hc = [];
+  if (sections['VOLUME']) {
+    const r = parseSingleFilialGridRows(sections['VOLUME'], filiais, 'VOLUME');
+    erros.push(...r.errors); volume = r.byMonth;
+  }
+  if (sections['HC']) {
+    const r = parseSingleFilialGridRows(sections['HC'], filiais, 'HC');
+    erros.push(...r.errors); hc = r.byMonth;
+  }
+  return { errors: erros, volume, hc };
 }
 
 async function importDistribuicaoTemplate(operacao, file, meta, reload) {
@@ -1579,59 +1600,95 @@ async function importDistribuicaoTemplate(operacao, file, meta, reload) {
 }
 
 // ---- Cadastro Ajuste de Premissas (flat, uma linha por mês) ----
-function buildAjusteTemplateRows(rows) {
-  const header = ['Mês (AAAA-MM)', ...AJUSTE_FIELDS.map(labelWithUnit)];
-  const dataRows = rows.slice().sort((a, b) => (a.referencia < b.referencia ? -1 : 1))
-    .map(r => [monthCellText(r.referencia), ...AJUSTE_FIELDS.map(f => Fmt.toEdit(r[f.key], f.format))]);
+// Modelo do Ajuste de Premissas: também por indicador. Como os três ajustes
+// (Volume, TMA e Pausa) moram na MESMA linha do banco, o arquivo traz só a
+// coluna escolhida e a importação faz merge — preenche aquele ajuste e
+// preserva os outros dois do mesmo mês.
+function buildAjusteTemplateRows(rows, campos, months) {
+  const header = ['Mês (AAAA-MM)', ...campos.map(labelWithUnit)];
+  const porMes = new Map(rows.map(r => [r.referencia, r]));
+  const dataRows = months.map(mes => {
+    const r = porMes.get(mes) || {};
+    return [monthCellText(mes), ...campos.map(f => Fmt.toEdit(r[f.key], f.format))];
+  });
   return [header, ...dataRows];
 }
 
-async function downloadAjusteTemplate(operacao) {
+async function downloadAjusteTemplate(operacao, campo) {
+  const campos = campo ? [campo] : AJUSTE_FIELDS;
   const rows = (await Api.get('/api/flat/tb_ajuste_premissas')).filter(r => r.nom_operacao === operacao);
-  ExportUtil.downloadCsv(`modelo_ajuste_premissas_${sanitizeFileName(operacao)}.csv`, buildAjusteTemplateRows(rows));
-  toast('Modelo baixado.');
+  const months = await mesesDoModelo(new Set(rows.map(r => r.referencia)), operacao);
+  const nome = campos.length === 1 ? sanitizeFileName(campos[0].label) : 'todos';
+  ExportUtil.downloadCsv(`modelo_ajuste_${nome}_${sanitizeFileName(operacao)}.csv`,
+    buildAjusteTemplateRows(rows, campos, months));
+  toast(`Modelo de ${campos.length === 1 ? campos[0].label : 'Ajuste de Premissas'} baixado (${months.length} mês(es)).`);
 }
 
+// Lê as colunas pelo cabeçalho (e não pela posição), para aceitar tanto o
+// arquivo de um ajuste só quanto um modelo antigo com os três.
 function parseAjusteTemplate(text) {
   const rows = ExportUtil.parseCsv(text);
-  if (rows.length < 1) return { errors: ['Arquivo vazio ou ilegível.'], records: [] };
-  const dataRows = rows.slice(1);
+  if (rows.length < 1) return { errors: ['Arquivo vazio ou ilegível.'], records: [], campos: [] };
+  const header = rows[0];
   const errors = [];
+  const cols = [];
+  for (let c = 1; c < header.length; c++) {
+    const titulo = csvCell(header, c);
+    if (!titulo) continue;
+    const f = AJUSTE_FIELDS.find(x => labelWithUnit(x) === titulo || x.label === titulo);
+    if (!f) { errors.push(`Coluna ${c + 1}: "${titulo}" não é um ajuste conhecido (use ${AJUSTE_FIELDS.map(labelWithUnit).join(', ')}).`); continue; }
+    if (cols.some(x => x.field.key === f.key)) { errors.push(`Coluna "${titulo}" aparece mais de uma vez.`); continue; }
+    cols.push({ index: c, field: f });
+  }
+  if (!errors.length && !cols.length) {
+    errors.push(`A planilha não tem nenhuma coluna de ajuste (${AJUSTE_FIELDS.map(labelWithUnit).join(', ')}).`);
+  }
+  if (errors.length) return { errors, records: [], campos: [] };
+
   const records = [];
   const seen = new Set();
-  dataRows.forEach((row, idx) => {
+  rows.slice(1).forEach((row, idx) => {
     const lineNo = idx + 2;
     const mesText = csvCell(row, 0);
-    const isBlank = !mesText && AJUSTE_FIELDS.every((f, i) => !csvCell(row, 1 + i));
+    // Linha inteiramente em branco é ignorada: o modelo já vem com a faixa de
+    // meses toda, e o usuário preenche só os que interessam.
+    const isBlank = !mesText && cols.every(cc => !csvCell(row, cc.index));
     if (isBlank) return;
     const referencia = parseMonthCell(mesText);
     if (!referencia) { errors.push(`Linha ${lineNo}: mês inválido "${mesText}" (use o formato AAAA-MM).`); return; }
     if (seen.has(referencia)) { errors.push(`Linha ${lineNo}: mês ${mesText} duplicado no arquivo.`); return; }
     seen.add(referencia);
     const rec = { referencia };
-    AJUSTE_FIELDS.forEach((f, i) => {
-      const { value, error } = parseNumberCell(csvCell(row, 1 + i), f.format);
-      if (error) errors.push(`Linha ${lineNo}, coluna "${labelWithUnit(f)}": ${error}`);
-      else rec[f.key] = value;
+    cols.forEach(cc => {
+      const { value, error } = parseNumberCell(csvCell(row, cc.index), cc.field.format);
+      if (error) errors.push(`Linha ${lineNo}, coluna "${labelWithUnit(cc.field)}": ${error}`);
+      else rec[cc.field.key] = value;
     });
     records.push(rec);
   });
-  return { errors, records };
+  return { errors, records, campos: cols.map(c => c.field) };
 }
 
 async function importAjusteTemplate(operacao, file, reload) {
   const text = await file.text();
-  const { errors, records } = parseAjusteTemplate(text);
+  const { errors, records, campos } = parseAjusteTemplate(text);
   if (errors.length) { showImportErrors(`Erros na planilha · ${operacao}`, errors); return; }
   if (!records.length) { toast('Nenhum registro para importar (planilha sem dados preenchidos).', true); return; }
-  if (!confirm(`Importar ${records.length} mês(es) para "${operacao}"? Meses já cadastrados serão atualizados.`)) return;
+  const quais = campos.map(c => c.label).join(', ');
+  if (!confirm(`Importar ${records.length} mês(es) de ${quais} para "${operacao}"? Meses já cadastrados serão atualizados; os demais ajustes do mesmo mês não são alterados.`)) return;
   try {
     const existing = (await Api.get('/api/flat/tb_ajuste_premissas')).filter(r => r.nom_operacao === operacao);
-    const existingSet = new Set(existing.map(r => r.referencia));
+    const porMes = new Map(existing.map(r => [r.referencia, r]));
     for (const rec of records) {
-      const payload = { ...rec, nom_operacao: operacao };
-      if (existingSet.has(rec.referencia)) await Api.put('/api/flat/tb_ajuste_premissas', payload);
-      else await Api.post('/api/flat/tb_ajuste_premissas', payload);
+      const atual = porMes.get(rec.referencia);
+      if (atual) {
+        // merge: só os ajustes presentes no arquivo mudam
+        await Api.put('/api/flat/tb_ajuste_premissas', { ...atual, ...rec, nom_operacao: operacao });
+      } else {
+        const payload = { referencia: rec.referencia, nom_operacao: operacao };
+        AJUSTE_FIELDS.forEach(f => { payload[f.key] = rec[f.key] ?? null; });
+        await Api.post('/api/flat/tb_ajuste_premissas', payload);
+      }
     }
     toast(`${records.length} mês(es) importado(s).`);
     await reload();

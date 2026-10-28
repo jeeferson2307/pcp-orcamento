@@ -132,7 +132,41 @@ arquivo (mesmo comportamento que você já tem hoje).
     gerado por engano.
   - Nos formulários mês a mês, um campo **deixado em branco apaga o valor**
     (vira nulo no banco), e não mais mantém o valor anterior.
+  - Os botões de **modelo de planilha** trabalham sobre o **indicador
+    selecionado no combo**: o arquivo sai com as colunas só daquele
+    indicador (mês × filiais da operação), e o nome do arquivo o identifica.
+    A coluna de meses vem preenchida **do primeiro ao último mês já
+    cadastrado naquele cadastro, sem buracos** — inclusive os meses que hoje
+    só existem em outro indicador, senão não haveria onde preenchê-los.
+    Quando o cadastro inteiro ainda está vazio (comum em CPRB, Reajuste e
+    Bodyshop), a faixa vem do horizonte que a operação tem nos demais
+    cadastros, para o modelo não sair só com o cabeçalho.
+    Na importação, **linhas inteiramente em branco são ignoradas** (o modelo
+    já traz a faixa toda) e um campo apagado numa linha preenchida limpa
+    aquele valor. No Ajuste de Premissas, onde os três ajustes dividem a mesma
+    linha do banco, importar um deles **preserva os outros dois**.
 - **Outros** — Filiais/Unidades.
+
+### Exportar e importar (Filiais, Centro de Custo, Operações)
+
+As três grades de dimensão têm botões de **exportar** e **importar** CSV na
+barra de ações. O arquivo exportado **já é o modelo de importação**: baixe,
+edite no Excel e importe de volta.
+
+- a exportação respeita o filtro da busca — buscou, exportou só aquilo;
+- em Operações, as colunas que vêm do centro de custo saem marcadas com
+  **`(ref.)`**. São informativas: na importação são reconhecidas e
+  **ignoradas** (para alterá-las, use o cadastro de Centro de Custo);
+- a importação **cria e atualiza**, nunca apaga: registros que existem no
+  sistema e não estão na planilha continuam como estão;
+- antes de gravar, tudo é validado — coluna desconhecida, coluna-chave
+  faltando, chave em branco, linha repetida, texto em campo numérico, Tipo
+  Escala fora da lista, filial ou centro de custo inexistente. **Havendo
+  qualquer erro, nada é gravado** e a tela lista todos os problemas com o
+  número da linha;
+- cada registro importado passa pelo mesmo caminho de gravação da tela, então
+  entra no histórico de alterações com o contexto (autor/solicitante/motivo)
+  que estiver ativo.
 
 ## Centro de custo: uma dimensão, não uma cópia
 

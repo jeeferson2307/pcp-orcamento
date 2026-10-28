@@ -45,6 +45,10 @@ async function renderFlatGrid(container, table, meta) {
       <div class="search-input" id="flat-search-wrap" style="max-width:320px"><span data-icon="search"></span><input type="text" id="flat-search" placeholder="Buscar…"></div>
       <span class="small" id="flat-count">${rows.length} registro(s)</span>
       <button class="primary" id="btn-new-record">${Icon('plus')} Novo registro</button>
+      <span class="indicador-actions">
+        <button class="icon-btn" id="btn-flat-export" title="Exportar esta tabela em CSV">${Icon('download')}</button>
+        <button class="icon-btn" id="btn-flat-import" title="Importar planilha preenchida">${Icon('upload')}</button>
+      </span>
     </div>
     <div class="panel"><table class="grid" id="flat-table"></table></div>
   `;
@@ -221,6 +225,166 @@ async function renderFlatGrid(container, table, meta) {
     const blank = {};
     fields.forEach(f => { blank[f.key] = null; });
     openRecordForm(blank, true);
+  };
+
+  // ---------------------------------------------------------------
+  // Modelo de planilha (exportar / importar), mesmo princípio dos cadastros
+  // por operação: o arquivo exportado JÁ é o modelo de importação, e a
+  // importação só grava se NÃO houver nenhum erro — em caso de erro, lista
+  // tudo e não escreve nada.
+  // ---------------------------------------------------------------
+  const nomeArquivo = `${flatCfg.arquivo || table}`;
+
+  // Colunas só de leitura (vindas de outra tabela por join) saem no arquivo
+  // com o sufixo abaixo, para ficar claro que são informativas: na importação
+  // elas são reconhecidas e ignoradas.
+  const SUFIXO_REF = ' (ref.)';
+  const rotuloExport = (f) => f.readOnly ? f.label + SUFIXO_REF : f.label;
+  const semSufixo = (t) => t.endsWith(SUFIXO_REF) ? t.slice(0, -SUFIXO_REF.length) : t;
+
+  function exportar() {
+    const linhas = [fields.map(rotuloExport)];
+    for (const rec of filtered) linhas.push(fields.map(f => rec[f.key] ?? ''));
+    ExportUtil.downloadCsv(`${sanitizeFileName(nomeArquivo)}.csv`, linhas);
+    toast(`${filtered.length} registro(s) exportado(s).`);
+  }
+
+  async function contextoValidacao() {
+    const ctx = {};
+    if (fields.some(f => f.type === 'filial-select')) {
+      ctx.filiais = new Set((await Api.get('/api/flat/d_filiais')).map(f => f.unidade));
+    }
+    if (fields.some(f => f.type === 'cc-select')) {
+      ctx.centros = new Set((await Api.get('/api/flat/d_centro_custo')).map(c => String(c.cod_centro_de_custo)));
+    }
+    return ctx;
+  }
+
+  function valorDaCelula(f, texto, linhaNo, erros) {
+    if (texto === '') return null;
+    if (f.type === 'number') {
+      const n = Number(texto.replace(',', '.'));
+      if (Number.isNaN(n)) { erros.push(`Linha ${linhaNo}, "${f.label}": "${texto}" não é um número.`); return undefined; }
+      return n;
+    }
+    return texto;
+  }
+
+  async function importar(file) {
+    const texto = await file.text();
+    const linhas = ExportUtil.parseCsv(texto).filter(l => l.some(c => String(c ?? '').trim() !== ''));
+    const erros = [];
+    if (linhas.length < 1) {
+      showImportErrors(`Erros na planilha · ${flatCfg.label}`, ['O arquivo está vazio.']);
+      return;
+    }
+
+    // --- cabeçalho ---
+    const cabecalho = linhas[0].map(c => semSufixo(String(c ?? '').trim()));
+    const colunaDe = new Map();
+    cabecalho.forEach((titulo, i) => {
+      if (!titulo) return;
+      const f = fields.find(x => x.label === titulo);
+      if (!f) { erros.push(`Coluna ${i + 1}: "${titulo}" não é uma coluna desta tabela.`); return; }
+      if (colunaDe.has(f.key)) { erros.push(`Coluna "${titulo}" aparece mais de uma vez.`); return; }
+      colunaDe.set(f.key, i);
+    });
+    for (const chave of flatCfg.pk) {
+      if (!colunaDe.has(chave)) {
+        const f = fields.find(x => x.key === chave);
+        erros.push(`Falta a coluna obrigatória "${f ? f.label : chave}" — ela identifica o registro.`);
+      }
+    }
+    if (erros.length) { showImportErrors(`Erros na planilha · ${flatCfg.label}`, erros); return; }
+
+    // --- linhas ---
+    const ctx = await contextoValidacao();
+    const editaveis = fields.filter(f => !f.readOnly && colunaDe.has(f.key));
+    const registros = [];
+    const vistos = new Set();
+    for (let i = 1; i < linhas.length; i++) {
+      const linhaNo = i + 1;
+      const rec = {};
+      let valida = true;
+      for (const f of editaveis) {
+        const bruto = csvCell(linhas[i], colunaDe.get(f.key));
+        if (flatCfg.pk.includes(f.key) && bruto === '') {
+          erros.push(`Linha ${linhaNo}: "${f.label}" não pode ficar em branco.`);
+          valida = false;
+          continue;
+        }
+        const v = valorDaCelula(f, bruto, linhaNo, erros);
+        if (v === undefined) { valida = false; continue; }
+        if (bruto !== '') {
+          if (f.type === 'select' && f.options && !f.options.includes(bruto)) {
+            erros.push(`Linha ${linhaNo}, "${f.label}": "${bruto}" não é um valor válido (use: ${f.options.join(', ')}).`);
+            valida = false;
+          }
+          if (f.type === 'filial-select' && ctx.filiais && !ctx.filiais.has(bruto)) {
+            erros.push(`Linha ${linhaNo}, "${f.label}": filial "${bruto}" não está cadastrada em Filiais / Unidades.`);
+            valida = false;
+          }
+          if (f.type === 'cc-select' && ctx.centros && !ctx.centros.has(String(bruto))) {
+            erros.push(`Linha ${linhaNo}, "${f.label}": centro de custo "${bruto}" não existe — cadastre-o antes de importar.`);
+            valida = false;
+          }
+        }
+        rec[f.key] = v;
+      }
+      if (!valida) continue;
+      const chave = flatCfg.pk.map(c => String(rec[c] ?? '')).join('\u0001');
+      if (vistos.has(chave)) {
+        erros.push(`Linha ${linhaNo}: registro repetido no arquivo (${flatCfg.pk.map(c => rec[c]).join(' / ')}).`);
+        continue;
+      }
+      vistos.add(chave);
+      registros.push(rec);
+    }
+    if (erros.length) { showImportErrors(`Erros na planilha · ${flatCfg.label}`, erros); return; }
+    if (!registros.length) { toast('Nenhum registro para importar (planilha sem dados).', true); return; }
+
+    // --- confirmação ---
+    const existentes = new Set(rows.map(r => flatCfg.pk.map(c => String(r[c] ?? '')).join('\u0001')));
+    const novos = registros.filter(r => !existentes.has(flatCfg.pk.map(c => String(r[c] ?? '')).join('\u0001'))).length;
+    const atualizados = registros.length - novos;
+    const ignoradas = fields.filter(f => f.readOnly && colunaDe.has(f.key)).map(f => f.label);
+    const confirmado = await confirmarImportacao({ novos, atualizados, ignoradas });
+    if (!confirmado) return;
+
+    try {
+      for (const rec of registros) {
+        const chave = flatCfg.pk.map(c => String(rec[c] ?? '')).join('\u0001');
+        if (existentes.has(chave)) await Api.put(`/api/flat/${table}`, rec);
+        else await Api.post(`/api/flat/${table}`, rec);
+      }
+      toast(`${novos} registro(s) criado(s) e ${atualizados} atualizado(s).`);
+      await recarregar();
+    } catch (e) { toast('Erro ao importar: ' + e.message, true); }
+  }
+
+  function confirmarImportacao({ novos, atualizados, ignoradas }) {
+    return new Promise((resolve) => {
+      let decidido = false;
+      openModal(`Importar · ${flatCfg.label}`, (body, close) => {
+        body.innerHTML = `
+          <p><strong>${novos}</strong> registro(s) serão criados e <strong>${atualizados}</strong> atualizados.</p>
+          <p class="small">A importação apenas cria e atualiza: registros que existem aqui e <strong>não</strong> estão na planilha continuam como estão. Para remover algum, use o botão de excluir na grade.</p>
+          ${ignoradas.length ? `<p class="small">Colunas informativas ignoradas (pertencem a outro cadastro): ${escapeHtml(ignoradas.join(', '))}.</p>` : ''}
+          <div class="modal-actions">
+            <button id="imp-cancel">Cancelar</button>
+            <button class="primary" id="imp-ok">${Icon('check')} Importar</button>
+          </div>
+        `;
+        body.querySelector('#imp-cancel').onclick = close;
+        body.querySelector('#imp-ok').onclick = () => { decidido = true; close(); resolve(true); };
+      }, { size: 'form', onClose: () => { if (!decidido) resolve(false); } });
+    });
+  }
+
+  container.querySelector('#btn-flat-export').onclick = exportar;
+  container.querySelector('#btn-flat-import').onclick = async () => {
+    const file = await pickFile('.csv');
+    if (file) await importar(file);
   };
 
   applyFilter();

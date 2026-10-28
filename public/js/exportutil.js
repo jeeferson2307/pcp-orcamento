@@ -191,3 +191,46 @@ const ExportUtil = (() => {
 
   return { downloadCsv, downloadXlsx, parseCsv };
 })();
+
+// ---------------------------------------------------------------
+// Utilitários de modelo de planilha, compartilhados pelas telas que baixam e
+// importam CSV (cadastros por operação e grades de dimensão). Ficam aqui, e
+// não em cadastros.js, porque flatgrid.js também os usa e é carregado antes.
+// ---------------------------------------------------------------
+function sanitizeFileName(s) {
+  return s.replace(/[\\/:*?"<>|]+/g, '_');
+}
+
+// Abre o seletor de arquivo do sistema operacional e resolve com o File
+// escolhido (ou null se o usuário cancelar — o evento 'cancel' nem sempre
+// dispara em todos os navegadores, então isso fica pendente até o próximo
+// clique nesse caso raro, sem efeito colateral).
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.style.display = 'none';
+    input.onchange = () => {
+      resolve(input.files[0] || null);
+      input.remove();
+    };
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+function showImportErrors(title, errors) {
+  openModal(title, (body, close) => {
+    body.innerHTML = `
+      <div class="empty-state" style="text-align:left;margin-bottom:16px">${Icon('circle-alert')} A planilha não está no padrão esperado. Corrija os itens abaixo e importe novamente — nada foi salvo.</div>
+      <ul class="import-error-list">${errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>
+      <div class="modal-actions"><button class="primary" id="import-err-close">Fechar</button></div>
+    `;
+    body.querySelector('#import-err-close').onclick = close;
+  }, { size: 'form' });
+}
+
+function csvCell(row, idx) {
+  return row && row[idx] != null ? String(row[idx]).trim() : '';
+}
