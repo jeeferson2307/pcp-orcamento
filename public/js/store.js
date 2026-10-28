@@ -25,9 +25,11 @@ const Store = {
     const filiais = DB.prepare('SELECT unidade FROM d_filiais ORDER BY rowid').all().map(r => r.unidade);
     const operacoes = DB.prepare('SELECT DISTINCT operacao FROM cadastro_operacoes ORDER BY operacao').all().map(r => r.operacao);
     const tiposDimens = DB.prepare('SELECT DISTINCT tipo_dimens FROM tb_premissas_dimens ORDER BY tipo_dimens').all().map(r => r.tipo_dimens);
-    const responsaveis = DB.prepare('SELECT DISTINCT responsavel_pcp FROM cadastro_operacoes WHERE responsavel_pcp IS NOT NULL ORDER BY responsavel_pcp').all().map(r => r.responsavel_pcp);
-    const gerentes = DB.prepare('SELECT DISTINCT gerente FROM cadastro_operacoes WHERE gerente IS NOT NULL ORDER BY gerente').all().map(r => r.gerente);
-    const centrosCusto = DB.prepare('SELECT DISTINCT desc_centro_de_custo FROM cadastro_operacoes WHERE desc_centro_de_custo IS NOT NULL ORDER BY desc_centro_de_custo').all().map(r => r.desc_centro_de_custo);
+    // Responsável PCP, Gerente e Centro de Custo são atributos do centro de
+    // custo (d_centro_custo), não da operação — a operação só aponta para ele.
+    const responsaveis = DB.prepare('SELECT DISTINCT responsavel_pcp FROM d_centro_custo WHERE responsavel_pcp IS NOT NULL ORDER BY responsavel_pcp').all().map(r => r.responsavel_pcp);
+    const gerentes = DB.prepare('SELECT DISTINCT gerente FROM d_centro_custo WHERE gerente IS NOT NULL ORDER BY gerente').all().map(r => r.gerente);
+    const centrosCusto = DB.prepare('SELECT DISTINCT desc_centro_de_custo FROM d_centro_custo WHERE desc_centro_de_custo IS NOT NULL ORDER BY desc_centro_de_custo').all().map(r => r.desc_centro_de_custo);
     // Intervalo de anos para os filtros "Ano" (Painel Gerencial, Analítico,
     // Calendário): do ano mínimo cadastrado em Cadastro Dimensionamento até
     // um ano além do máximo cadastrado (o "próximo ano" a orçar). Dinâmico —
@@ -164,6 +166,19 @@ const Store = {
 
   getFlat(table) {
     if (!FLAT_TABLES[table]) throw new Error('tabela desconhecida: ' + table);
+    // A tela de Operações mostra os dados do centro de custo junto, mesmo eles
+    // morando em d_centro_custo. São colunas só de leitura (ver `readOnly` em
+    // flatTablesConfig.js): a gravação continua usando apenas as colunas reais
+    // da tabela, devolvidas por columnsOf().
+    if (table === 'cadastro_operacoes') {
+      return DB.prepare(`
+        SELECT o.operacao, o.filial, o.cod_centro_de_custo, o.tipo_escala,
+               c.desc_centro_de_custo, c.cliente, c.cod_empresa, c.cod_filial,
+               c.un_dre, c.diretoria, c.gerente, c.responsavel_pcp, c.responsavel_fpa
+        FROM cadastro_operacoes o
+        LEFT JOIN d_centro_custo c ON c.cod_centro_de_custo = o.cod_centro_de_custo
+        ORDER BY o.operacao, o.filial`).all();
+    }
     return DB.prepare(`SELECT * FROM ${table}`).all();
   },
 
@@ -502,4 +517,12 @@ const Store = {
   },
 
   getComparativo(q) { return Versionamento.comparar(q || {}); },
+
+  getConfig(chave) { return { texto: Versionamento.getConfig(chave) }; },
+
+  setConfig(chave, texto) {
+    Versionamento.setConfig(chave, texto);
+    notifyChanged();
+    return { ok: true };
+  },
 };

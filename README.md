@@ -76,8 +76,18 @@ arquivo (mesmo comportamento que você já tem hoje).
   combo mostra, por exemplo, "2 de 4 filiais"). Se a operação não tiver
   nenhuma filial cadastrada, a grade volta a mostrar todas — sinal de que
   falta completar o Cadastro Operações.
-  - **Cadastro Operações** — tabela única (substitui os antigos cadastros
-    separados de Centro de Custo e Operações).
+  - **Cadastro Centro de Custo** — a dimensão de centro de custo: Código
+    Empresa, Código Filial, Código Centro de Custo, Descrição, Cliente,
+    UN DRE, Diretoria, Gerente, Responsável PCP e Responsável FP&A.
+    Cadastre aqui uma vez e reaproveite em quantas operações precisar.
+  - **Cadastro Operações** — cada linha é uma operação numa filial, com
+    **Tipo Escala** e a escolha do **Centro de Custo**. Ao selecionar o centro
+    de custo (a lista mostra *descrição · código*, porque descrições se
+    repetem entre códigos diferentes), os demais campos aparecem preenchidos
+    e **bloqueados** — eles pertencem ao centro de custo, não à operação.
+    O motor de cálculo busca esses dados pelo relacionamento, e o Analítico
+    continua trazendo cliente, UN DRE, diretoria, gerente e responsáveis
+    exatamente como antes.
   - **Cadastro Dimensionamento** — Volume, TMA, Pausa e Ocupação (formato
     decimal `#.#`, sem casas de percentual — replica o formato original da
     planilha), HC Dimensionado, HC Contratado. Ao adicionar um mês, o
@@ -123,6 +133,43 @@ arquivo (mesmo comportamento que você já tem hoje).
   - **Histórico de Alterações** — o log completo, filtrável por versão,
     operação, solicitante e busca livre.
 - **Outros** — Filiais/Unidades.
+
+## Centro de custo: uma dimensão, não uma cópia
+
+Antes, os dez campos de centro de custo ficavam **copiados dentro de cada
+linha** de `cadastro_operacoes` (uma cópia por operação+filial). Com isso o
+mesmo código podia aparecer com descrição, UN DRE ou responsável diferentes
+em operações diferentes — e aparecia.
+
+Agora existe `d_centro_custo` (PK `cod_centro_de_custo`), e
+`cadastro_operacoes` guarda apenas `operacao`, `filial`,
+`cod_centro_de_custo` e `tipo_escala`. O motor de cálculo faz o join:
+
+```sql
+FROM cadastro_operacoes o
+LEFT JOIN d_centro_custo c ON c.cod_centro_de_custo = o.cod_centro_de_custo
+```
+
+O join devolve a mesma forma de antes, então o resto de `calc.js` não mudou.
+Validado comparando o resultado do motor anterior com o atual sobre a mesma
+base: **as 487 linhas do Analítico e todos os valores numéricos batem
+exatamente**; só os rótulos herdados mudaram, e apenas nos códigos que
+estavam divergentes.
+
+### Migração de bancos existentes
+
+Roda sozinha na primeira abertura, quando o banco ainda tem o formato antigo.
+Para cada código, vence a combinação de atributos **mais frequente** (empate:
+a primeira encontrada). O que foi descartado não some calado: fica guardado em
+`tb_config` e a tela de Centro de Custo mostra um aviso listando código,
+campo, valor adotado e valor descartado, para conferência e correção. O aviso
+pode ser ocultado depois de conferido; o relatório continua no banco.
+
+### Tipo Escala continua na operação
+
+Não é atributo do centro de custo: duas operações do mesmo centro de custo
+podem ter escalas diferentes, e é a escala que define a base de dias de
+faturamento na projeção de volume.
 
 ## Versionamento (histórico e comparativo)
 

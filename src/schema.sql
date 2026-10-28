@@ -8,24 +8,30 @@ CREATE TABLE IF NOT EXISTS d_filiais (
   unidade       TEXT PRIMARY KEY
 );
 
--- Cadastro único de Operações (une o antigo D_CENTRO_CUSTO + D_OPERACOES):
--- cada linha é uma operação, com os dados do seu centro de custo já
--- denormalizados. É a fonte de verdade para a lista de operações usada em
--- todos os cadastros de premissas (dimensionamento, overstaff, receita,
--- adicionais, distribuição).
-CREATE TABLE IF NOT EXISTS cadastro_operacoes (
-  cod_centro_de_custo   TEXT,
+-- Cadastro de Centro de Custo: dimensao propria, referenciada por
+-- cadastro_operacoes atraves de cod_centro_de_custo. Antes estes campos
+-- viviam denormalizados dentro de cadastro_operacoes (uma copia por
+-- operacao+filial), o que permitia o mesmo codigo aparecer com descricao,
+-- UN DRE ou responsavel diferentes em linhas diferentes.
+CREATE TABLE IF NOT EXISTS d_centro_custo (
+  cod_centro_de_custo   TEXT PRIMARY KEY,
   desc_centro_de_custo  TEXT,
   cliente               TEXT,
   cod_empresa           INTEGER,
-  operacao              TEXT NOT NULL,
   cod_filial            INTEGER,
-  filial                TEXT NOT NULL,
   un_dre                TEXT,
   diretoria             TEXT,
   gerente               TEXT,
   responsavel_pcp       TEXT,
-  responsavel_fpa       TEXT,
+  responsavel_fpa       TEXT
+);
+
+-- Operacao dentro de uma filial. Os dados de centro de custo vem do
+-- relacionamento com d_centro_custo (o motor de calculo faz o join).
+CREATE TABLE IF NOT EXISTS cadastro_operacoes (
+  operacao              TEXT NOT NULL,
+  filial                TEXT NOT NULL,
+  cod_centro_de_custo   TEXT,
   tipo_escala           TEXT,
   PRIMARY KEY (filial, operacao)
 );

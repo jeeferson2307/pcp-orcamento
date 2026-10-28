@@ -45,24 +45,30 @@ function main() {
       insFiliais.run(r.COD_EMPRESA, r.NOM_EMPRESA, r.COD_FILIAL, r.UNIDADE);
     }
 
-    // Cadastro único de Operações = D_OPERACOES mesclado com D_CENTRO_CUSTO
-    // (mesma junção que a query M fazia na Fase 13, feita aqui uma única vez).
-    const centrosCusto = new Map();
+    // D_CENTRO_CUSTO e D_OPERACOES continuam sendo duas tabelas, como na
+    // planilha: a operação apenas aponta para o código do centro de custo.
+    // (Antes o seed mesclava as duas aqui, denormalizando; isso permitia o
+    // mesmo código ficar com descrição/UN DRE diferentes por operação.)
+    db.exec('DELETE FROM d_centro_custo');
+    const insCc = db.prepare(`INSERT OR REPLACE INTO d_centro_custo
+      (cod_centro_de_custo, desc_centro_de_custo, cliente, cod_empresa, cod_filial, un_dre, diretoria, gerente, responsavel_pcp, responsavel_fpa)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`);
     for (const r of sheetRows(wb, 'D_CENTRO_CUSTO')) {
-      centrosCusto.set(String(r.COD_CENTRO_DE_CUSTO), r);
+      if (r.COD_CENTRO_DE_CUSTO == null) continue;
+      insCc.run(
+        String(r.COD_CENTRO_DE_CUSTO), r.DESC_CENTRO_DE_CUSTO ?? null, r.CLIENTE ?? null,
+        r.COD_EMPRESA ?? null, r.COD_FILIAL ?? null, r.UN_DRE ?? null,
+        r.DIRETORIA ?? null, r.GERENTE ?? null, r.RESPONSAVEL_PCP ?? null, r['RESPONSAVEL_FP&A'] ?? null
+      );
     }
+
+    // Atenção: o reseed recria a tabela do zero, então o Tipo Escala
+    // (cadastrado no sistema, não na planilha) volta a ficar vazio.
     db.exec('DELETE FROM cadastro_operacoes');
     const insOp = db.prepare(`INSERT OR REPLACE INTO cadastro_operacoes
-      (cod_centro_de_custo, desc_centro_de_custo, cliente, cod_empresa, operacao, cod_filial, filial, un_dre, diretoria, gerente, responsavel_pcp, responsavel_fpa)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+      (operacao, filial, cod_centro_de_custo, tipo_escala) VALUES (?,?,?,NULL)`);
     for (const r of sheetRows(wb, 'D_OPERACOES')) {
-      const codCC = r.COD_CENTRO_DE_CUSTO != null ? String(r.COD_CENTRO_DE_CUSTO) : null;
-      const cc = centrosCusto.get(codCC) || {};
-      insOp.run(
-        codCC, cc.DESC_CENTRO_DE_CUSTO ?? null, cc.CLIENTE ?? null, cc.COD_EMPRESA ?? null,
-        r.OPERACAO, cc.COD_FILIAL ?? null, r.FILIAL,
-        cc.UN_DRE ?? null, cc.DIRETORIA ?? null, cc.GERENTE ?? null, cc.RESPONSAVEL_PCP ?? null, cc['RESPONSAVEL_FP&A'] ?? null
-      );
+      insOp.run(r.OPERACAO, r.FILIAL, r.COD_CENTRO_DE_CUSTO != null ? String(r.COD_CENTRO_DE_CUSTO) : null);
     }
 
     // ---------------- Premissas de dimensionamento ----------------

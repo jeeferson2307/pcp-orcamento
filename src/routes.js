@@ -17,7 +17,7 @@ router.get('/meta', (req, res) => {
   const filiais = db.prepare('SELECT unidade FROM d_filiais ORDER BY rowid').all().map(r => r.unidade);
   const operacoes = db.prepare('SELECT DISTINCT operacao FROM cadastro_operacoes ORDER BY operacao').all().map(r => r.operacao);
   const tiposDimens = db.prepare('SELECT DISTINCT tipo_dimens FROM tb_premissas_dimens ORDER BY tipo_dimens').all().map(r => r.tipo_dimens);
-  const responsaveis = db.prepare('SELECT DISTINCT responsavel_pcp FROM cadastro_operacoes WHERE responsavel_pcp IS NOT NULL ORDER BY responsavel_pcp').all().map(r => r.responsavel_pcp);
+  const responsaveis = db.prepare('SELECT DISTINCT responsavel_pcp FROM d_centro_custo WHERE responsavel_pcp IS NOT NULL ORDER BY responsavel_pcp').all().map(r => r.responsavel_pcp);
   res.json({
     filiais,
     operacoes,

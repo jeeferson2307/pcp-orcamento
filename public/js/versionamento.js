@@ -79,6 +79,7 @@ const ROTULO_CAMPOS = {
 };
 
 const ROTULO_TABELAS = {
+  d_centro_custo: 'Centro de Custo',
   tb_premissas_dimens: 'Dimensionamento',
   tb_ajuste_premissas: 'Ajuste Premissas',
   tb_unitarios: 'Unitário de Faturamento',
@@ -672,8 +673,9 @@ const Versionamento = (() => {
   }
 
   return {
-    // contexto
+    // contexto / configuração textual
     getContexto, setContexto,
+    getConfig: lerConfig, setConfig: gravarConfig,
     // log
     registrar,
     get registrando() { return registrando; },

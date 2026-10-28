@@ -15,6 +15,7 @@ const NAV = [
   ]},
   { group: 'Configuração', items: [
     { id: 'flat:d_filiais', label: 'Filiais / Unidades', icon: 'map-pin' },
+    { id: 'flat:d_centro_custo', label: 'Cadastro Centro de Custo', icon: 'wallet' },
     { id: 'flat:cadastro_operacoes', label: 'Cadastro Operações', icon: 'building-2' },
     { id: 'calendario', label: 'Calendário', icon: 'calendar' },
   ]},
@@ -78,6 +79,7 @@ async function router() {
     if (route === 'comparativo') return renderComparativoPage(body, META);
     if (route === 'historico') return renderHistoricoPage(body, META);
     if (route.startsWith('wide:')) return renderWideGrid(body, route.slice(5), META);
+    if (route === 'flat:d_centro_custo') return renderCentroCustoPage(body, META);
     if (route.startsWith('flat:')) return renderFlatGrid(body, route.slice(5), META);
     if (route.startsWith('cadastro:')) {
       const fn = CADASTRO_RENDERERS[route.slice(9)];

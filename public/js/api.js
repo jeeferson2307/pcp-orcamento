@@ -53,6 +53,9 @@ const Api = {
         // a partir daqui, ate o usuario trocar o contexto.
         if (method === 'GET') result = Store.getContexto();
         else if (method === 'PUT') result = Store.setContexto(body);
+      } else if ((m = path.match(/^\/api\/config\/([^/]+)$/))) {
+        if (method === 'GET') result = Store.getConfig(m[1]);
+        else if (method === 'PUT') result = Store.setConfig(m[1], body.texto);
       } else if (path === '/api/versoes') {
         if (method === 'GET') result = Store.getVersoes();
         else if (method === 'POST') result = Store.postVersao(body);

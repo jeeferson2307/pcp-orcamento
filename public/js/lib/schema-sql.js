@@ -7,19 +7,23 @@ CREATE TABLE IF NOT EXISTS d_filiais (
   unidade       TEXT PRIMARY KEY
 );
 
-CREATE TABLE IF NOT EXISTS cadastro_operacoes (
-  cod_centro_de_custo   TEXT,
+CREATE TABLE IF NOT EXISTS d_centro_custo (
+  cod_centro_de_custo   TEXT PRIMARY KEY,
   desc_centro_de_custo  TEXT,
   cliente               TEXT,
   cod_empresa           INTEGER,
-  operacao              TEXT NOT NULL,
   cod_filial            INTEGER,
-  filial                TEXT NOT NULL,
   un_dre                TEXT,
   diretoria             TEXT,
   gerente               TEXT,
   responsavel_pcp       TEXT,
-  responsavel_fpa       TEXT,
+  responsavel_fpa       TEXT
+);
+
+CREATE TABLE IF NOT EXISTS cadastro_operacoes (
+  operacao              TEXT NOT NULL,
+  filial                TEXT NOT NULL,
+  cod_centro_de_custo   TEXT,
   tipo_escala           TEXT,
   PRIMARY KEY (filial, operacao)
 );

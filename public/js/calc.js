@@ -206,7 +206,17 @@ function buildComplete(ano) {
   const tbSpam = mapByKey(DB.prepare('SELECT * FROM tb_spam').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbBodyshop = mapByKey(DB.prepare('SELECT * FROM tb_bodyshop').all(), r => keyDist(r.referencia, r.nom_operacao, r.unidade));
   const tbUnitarios = mapByKey(DB.prepare('SELECT * FROM tb_unitarios').all(), r => `${r.filial}${r.operacao}`);
-  const cadastroOperacoes = mapByKey(DB.prepare('SELECT * FROM cadastro_operacoes').all(), r => `${r.filial}${r.operacao}`);
+  // Centro de custo deixou de ser copiado dentro de cadastro_operacoes e virou
+  // a dimensao d_centro_custo: o join devolve a MESMA forma de antes (um objeto
+  // por filial+operacao, com os campos do centro de custo juntos), por isso
+  // nada abaixo precisou mudar.
+  const cadastroOperacoes = mapByKey(DB.prepare(`
+    SELECT o.operacao, o.filial, o.cod_centro_de_custo, o.tipo_escala,
+           c.desc_centro_de_custo, c.cliente, c.cod_empresa, c.cod_filial,
+           c.un_dre, c.diretoria, c.gerente, c.responsavel_pcp, c.responsavel_fpa
+    FROM cadastro_operacoes o
+    LEFT JOIN d_centro_custo c ON c.cod_centro_de_custo = o.cod_centro_de_custo
+  `).all(), r => `${r.filial}${r.operacao}`);
   // Quantas filiais faturam essa operação por Tempo Logado/Posição — usado só
   // pelo fallback de hcRevisado abaixo: sem Distribuição de HC cadastrada,
   // divide o HC Contratado igualmente entre elas em vez de repetir o valor
