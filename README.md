@@ -65,6 +65,22 @@ arquivo (mesmo comportamento que você já tem hoje).
     pede um nome, e salva uma cópia `.sqlite` com o nome sanitizado
     (sem acentos/espaços) + `_AAAAMMDD` no local que você escolher — sem
     alterar o arquivo de trabalho que está aberto.
+- **Guia Versões**
+  - **Versões** — lista dos marcos criados, com autor, data, quantidade de
+    alterações e motor de cálculo usado. Permite criar uma versão nova
+    (congela os indicadores do momento), restaurar o estado de uma versão
+    anterior e excluir um marco.
+  - **Comparativo** — escolha duas versões (ou uma versão e a *versão de
+    trabalho*, que é o estado atual) e veja os indicadores lado a lado com
+    **delta absoluto e percentual**: Receita Bruta, FTE Financeiro, HC
+    Dimensionado, HC Treinamento, Volume, ROB/Financeiro, Unitário médio,
+    TMA, Absenteísmo, Turnover, Férias e Folga Extra. Agrupe por
+    Diretoria/Site/Cliente/Operação/Mês/UN DRE/Centro de Custo/Gerente e
+    filtre por mês. Logo abaixo, a tabela **o que mudou**: cada campo
+    alterado entre as duas versões, com valor antes, valor depois, quem
+    pediu e por quê. Tudo exportável em CSV.
+  - **Histórico de Alterações** — o log completo, filtrável por versão,
+    operação, solicitante e busca livre.
 - **Guias de Cadastro** (lista vertical de operações → clique abre uma
   janela grande com o detalhe daquela operação)
 
@@ -116,22 +132,6 @@ arquivo (mesmo comportamento que você já tem hoje).
     gerado por engano.
   - Nos formulários mês a mês, um campo **deixado em branco apaga o valor**
     (vira nulo no banco), e não mais mantém o valor anterior.
-- **Guia Versões**
-  - **Versões** — lista dos marcos criados, com autor, data, quantidade de
-    alterações e motor de cálculo usado. Permite criar uma versão nova
-    (congela os indicadores do momento), restaurar o estado de uma versão
-    anterior e excluir um marco.
-  - **Comparativo** — escolha duas versões (ou uma versão e a *versão de
-    trabalho*, que é o estado atual) e veja os indicadores lado a lado com
-    **delta absoluto e percentual**: Receita Bruta, FTE Financeiro, HC
-    Dimensionado, HC Treinamento, Volume, ROB/Financeiro, Unitário médio,
-    TMA, Absenteísmo, Turnover, Férias e Folga Extra. Agrupe por
-    Diretoria/Site/Cliente/Operação/Mês/UN DRE/Centro de Custo/Gerente e
-    filtre por mês. Logo abaixo, a tabela **o que mudou**: cada campo
-    alterado entre as duas versões, com valor antes, valor depois, quem
-    pediu e por quê. Tudo exportável em CSV.
-  - **Histórico de Alterações** — o log completo, filtrável por versão,
-    operação, solicitante e busca livre.
 - **Outros** — Filiais/Unidades.
 
 ## Centro de custo: uma dimensão, não uma cópia

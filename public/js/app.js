@@ -5,6 +5,11 @@ const NAV = [
     { id: 'dashboard', label: 'Painel Gerencial', icon: 'layout-dashboard' },
     { id: 'dashboard:analitico', label: 'Analítico', icon: 'table' },
   ]},
+  { group: 'Versões', items: [
+    { id: 'versoes', label: 'Versões', icon: 'save' },
+    { id: 'comparativo', label: 'Comparativo', icon: 'table' },
+    { id: 'historico', label: 'Histórico de Alterações', icon: 'book-open' },
+  ]},
   { group: 'Cadastro', items: [
     { id: 'cadastro:dimensionamento', label: 'Cadastro Dimensionamento', icon: 'sliders-horizontal' },
     { id: 'cadastro:overstaff', label: 'Cadastro Premissas Overstaff', icon: 'users' },
@@ -18,11 +23,6 @@ const NAV = [
     { id: 'flat:d_centro_custo', label: 'Cadastro Centro de Custo', icon: 'wallet' },
     { id: 'flat:cadastro_operacoes', label: 'Cadastro Operações', icon: 'building-2' },
     { id: 'calendario', label: 'Calendário', icon: 'calendar' },
-  ]},
-  { group: 'Versões', items: [
-    { id: 'versoes', label: 'Versões', icon: 'save' },
-    { id: 'comparativo', label: 'Comparativo', icon: 'table' },
-    { id: 'historico', label: 'Histórico de Alterações', icon: 'book-open' },
   ]},
   { group: 'Glossário/Regras', items: [
     { id: 'glossario', label: 'Glossário/Regras', icon: 'book-open' },
