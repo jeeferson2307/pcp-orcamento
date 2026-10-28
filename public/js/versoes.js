@@ -61,7 +61,7 @@ async function renderVersoesPage(container) {
 
     container.innerHTML = `
       <div class="toolbar">
-        <span class="small">${versoes.length} versão(ões) · motor de cálculo ${escapeHtml(engine)}</span>
+        <span class="small" title="Identificador do motor de cálculo: um hash do próprio calc.js, que muda sozinho a cada alteração na fórmula.">${versoes.length} versão(ões) · motor de cálculo ${escapeHtml(engine)}</span>
         <button class="primary" id="btn-nova-versao">${Icon('plus')} Criar versão</button>
       </div>
       ${pendentes > 0
@@ -94,7 +94,7 @@ async function renderVersoesPage(container) {
         <td>${escapeHtml(v.criado_por || '—')}</td>
         <td>${v.qtd_alteracoes}</td>
         <td>${v.ano_projecao ?? '—'}</td>
-        <td class="${v.engine_versao === engine ? '' : 'delta-neg'}">${escapeHtml(v.engine_versao || '—')}</td>
+        <td class="${v.engine_versao === engine ? '' : 'delta-neg'}" title="${v.engine_versao === engine ? 'Calculada pelo mesmo motor de hoje.' : 'Calculada por um motor diferente do atual — parte de uma diferença pode vir da fórmula.'}">${escapeHtml(v.engine_versao || '—')}</td>
       `;
       const tdAcoes = document.createElement('td');
       tdAcoes.className = 'actions-col';

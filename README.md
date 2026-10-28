@@ -242,16 +242,27 @@ linhas excluídas são recriadas com os valores originais.
 
 ### Mudança de dado x mudança de fórmula
 
-Cada versão guarda a versão do motor de cálculo (`engine_versao`, em
-`versionamento.js`). Quando as duas versões comparadas usaram motores
-diferentes, o Comparativo **avisa**, porque parte da diferença pode vir da
-fórmula e não do dado. Marcando *"Recalcular ambas com o motor atual"*, o
-sistema reconstrói o estado antigo **num clone do banco em memória** e
-recalcula com o motor de hoje — o arquivo de trabalho não é tocado.
+Cada versão guarda o identificador do motor de cálculo (`engine_versao`).
+Quando as duas versões comparadas usaram motores diferentes, o Comparativo
+**avisa**, porque parte da diferença pode vir da fórmula e não do dado.
+Marcando *"Recalcular ambas com o motor atual"*, o sistema reconstrói o estado
+antigo **num clone do banco em memória** e recalcula com o motor de hoje — o
+arquivo de trabalho não é tocado.
 
-> Ao subir `engine_versao` sempre que `calc.js` mudar, esse aviso continua
-> confiável. Se esquecer, o Comparativo passa a creditar ao dado uma
-> diferença que veio da fórmula.
+Esse identificador (`calc-xxxxxxxx`) é **calculado sozinho**: é um hash do
+texto das funções e constantes do `calc.js` que estão rodando. Qualquer edição
+no motor muda o hash na hora, sem ninguém precisar lembrar de atualizar nada —
+antes era uma data digitada à mão, que ficou para trás na primeira mudança do
+`calc.js` e deixou o aviso mudo.
+
+> O hash sai de `Function.prototype.toString()`, e não da leitura do arquivo,
+> porque o sistema é aberto por duplo clique (`file://`), onde o navegador
+> bloqueia a leitura até de um arquivo vizinho. Como o projeto não tem build
+> nem minificação, o texto da função é o do arquivo.
+>
+> Versões criadas antes desta mudança ficaram com a data antiga (`2026.10.27`)
+> e aparecem como motor diferente do atual — o que é honesto: não dá para
+> saber qual dos dois `calc.js` daquele período gerou cada uma.
 
 ### Primeira abertura
 

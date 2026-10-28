@@ -25,9 +25,70 @@
 // memória), para separar "mudou o dado" de "mudou a fórmula".
 // ===================================================================
 
-// Sobe quando calc.js muda. Fica aqui (e não em calc.js) para manter o motor
-// de cálculo intocado — ele é validado linha a linha contra o Excel original.
-const ENGINE_VERSAO = '2026.10.27';
+// -------------------------------------------------------------------
+// Impressão digital do motor de cálculo.
+//
+// É o que permite ao Comparativo saber se duas versões foram calculadas pelo
+// MESMO calc.js. Isto era uma data digitada à mão aqui, e falhou na primeira
+// oportunidade: calc.js mudou (centro de custo virou dimensão) e a string
+// ficou parada — o aviso sumiu e uma diferença vinda da fórmula seria
+// creditada ao dado, que é exatamente o erro que este campo existe para
+// evitar.
+//
+// Agora a string sai do código em execução: hash do texto de cada função do
+// motor mais o valor de cada constante dele. Qualquer edição em calc.js muda
+// o hash sozinha, sem ninguém precisar lembrar de nada.
+//
+// Por que não ler o arquivo calc.js e dar hash nos bytes: o sistema é aberto
+// por duplo clique (file://), onde o navegador bloqueia fetch/XHR até de um
+// arquivo vizinho. Function.prototype.toString() devolve o fonte original —
+// não há build nem minificação neste projeto — então dá no mesmo e funciona
+// em qualquer modo de abertura.
+//
+// Continua fora de calc.js de propósito: o motor é validado linha a linha
+// contra o Excel original e segue intocado.
+// -------------------------------------------------------------------
+
+// FNV-1a 32 bits. Não é criptográfico de propósito: só precisa mudar quando o
+// texto muda e caber numa coluna que a tela mostra.
+function hashFnv1a(texto) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < texto.length; i++) {
+    h ^= texto.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+// Tudo que calc.js declara no topo do arquivo. Se alguma peça for renomeada ou
+// removida lá, o objeto nem chega a montar (ReferenceError) e a versão vira
+// 'desconhecido': a tela passa a mostrar o motor como não identificado, que é o
+// aviso certo nesse caso — melhor que um hash estável que já não representa o
+// motor inteiro. Peça NOVA não precisa entrar aqui para ser detectada: para
+// influir no resultado ela tem de ser chamada por alguma destas, e aí o texto
+// de quem chama já mudou.
+function impressaoDigitalDoMotor() {
+  let pecas;
+  try {
+    pecas = {
+      TEMPO_LOGADO, POSICAO, MINUTAGEM_T, EVENTO,
+      roundUp, keyDist, mapByKey, buildCarryForwardLookup,
+      buildForecast, buildComplete, buildFinal,
+    };
+  } catch (_) {
+    return 'desconhecido';
+  }
+  // \r\n normalizado: o mesmo commit em dois checkouts (Windows x Linux) tem
+  // de produzir o mesmo hash, senão a versão criada numa máquina apareceria
+  // como motor diferente na outra.
+  const fonte = Object.keys(pecas).sort()
+    .map(nome => nome + '=' + String(pecas[nome]))
+    .join('\n')
+    .replace(/\r\n/g, '\n');
+  return 'calc-' + hashFnv1a(fonte);
+}
+
+const ENGINE_VERSAO = impressaoDigitalDoMotor();
 
 // Colunas do resultado congeladas por versão: o recorte do Analítico que a
 // tela de Comparativo precisa, não as ~60 colunas inteiras (seriam 0,33 MB
